@@ -3,7 +3,61 @@ const ROOT=path.join(__dirname,"public"),PORT=Number(process.env.PORT||3000);
 const KEY=process.env.OPENAI_API_KEY,MODEL=process.env.OPENAI_MODEL||"gpt-6-astra";
 function send(res,status,obj){res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"});res.end(JSON.stringify(obj))}
 function body(req){return new Promise((resolve,reject)=>{let s="";req.on("data",c=>{s+=c;if(s.length>20000){reject(Error("Завеликий запит"));req.destroy()}});req.on("end",()=>{try{resolve(JSON.parse(s||"{}"))}catch{reject(Error("Некоректний формат запиту"))}});req.on("error",reject)})}
-server.on('request', (req, res) => { if (req.url === '/') { res.writeHead(200, {'Content-Type': 'text/html'}); require('fs').createReadStream(require('path').join(__dirname, 'public', 'index.html')).pipe(res); } });.
+server.on('request', async (req, res) => {
+  const u = new URL(req.url, "http://localhost");
+  if (req.method === "GET" && u.pathname === "/health") {
+    res.writeHead(200, {'Content-Type': 'application/json'});
+    res.end(JSON.stringify({"status": "ok", "service": "rozumnyi-plan-konspekt"}));
+    return;
+  }
+  if (req.method === "POST" && u.pathname === "/api/generate") {
+    if (!KEY) {
+      return res.writeHead(503, {'Content-Type': 'text/plain'}).end("Не налаштовано OPENAI_API_KEY. Перевірте README.");
+    }
+    try {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      const data = JSON.parse(body || "{}");
+      const sub = data.subject || "Без предмета";
+      const cls = data.grade || "1 клас";
+      const topic = data.topic || "Без теми";
+      const type = data.type || "Загальний урок";
+      const wishes = data.extra || "Немає";
+
+      const prompt = `АУДИТОРІЯ: ${cls} з легкою розумовою відсталістю (легкими інтелектуальними порушеннями)
+ПРЕДМЕТ: ${sub}
+ТЕМА: ${topic}
+ТИП УРОКУ: ${type}
+ПОБАЖАННЯ: ${wishes}
+
+Склади повний практичний план-конспект українською мовою.`;
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      const json = await response.json();
+      const text = json.choices?.[0]?.message?.content || "Помилка від OpenAI";
+
+      res.writeHead(200, {'Content-Type': 'application/json'});
+      res.end(JSON.stringify({ result: text }));
+    } catch (err) {
+      res.writeHead(500, {'Content-Type': 'text/plain'});
+      res.end("Помилка сервера: " + err.message);
+    }
+    return;
+  }
+  res.writeHead(404, {'Content-Type': 'text/plain'});
+  res.end("Not found");
+});
+
 const server=http.createServer(async(req,res)=>{
  const u=new URL(req.url,"http://localhost");
  if(req.method==="GET" && u.pathname==="/health") {res.writeHead(200,{"Content-Type":"application/json"});return res.end(JSON.stringify({ok:true,app:"rozumnyi-plan-konspekt"}));}
