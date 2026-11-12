@@ -53,8 +53,6 @@ const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
     ]
   })
 });
-            const text = json.choices?.[0]?.message?.content || "Помилка від OpenAI";
-
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ result: text }));
         } catch (err) {
