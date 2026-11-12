@@ -41,19 +41,19 @@ const server = http.createServer(async (req, res) => {
 ТИП УРОКУ: ${type}
 ПОБАЖАННЯ: ${wishes}
 
-Склади повний практичний план-конспект українською мовою.`;
-                body: JSON.stringify{
-            const response = await fetch('https://api.deepseek.com/v1/chat/completions'),{
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${IKEY}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: MODEL,
-                    messages: [{ role: 'user', content: prompt }]
-                })
-            });
+const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${IKEY}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    model: MODEL,
+    messages: [
+      { role: 'user', content: prompt }
+    ]
+  })
+});
 
             const json = await response.json();
             const text = json.choices?.[0]?.message?.content || "Помилка від OpenAI";
