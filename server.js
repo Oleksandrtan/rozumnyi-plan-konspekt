@@ -1,4 +1,4 @@
-const http = require('http');
+const http = require('https');
 const fs = require('fs');
 const path = require('path');
 
@@ -76,7 +76,7 @@ const server = http.createServer(async (req, res) => {
         contents: [{ parts: [{ text: prompt }] }]
       };
 
-      const apiReq = http.request(
+      const apiReq = https.request(
         `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${IKEY}`,
         {
           method: 'POST',
