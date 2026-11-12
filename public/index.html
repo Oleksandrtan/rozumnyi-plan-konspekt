@@ -1,1 +1,85 @@
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Плани</title></head><body><h1>Працює</h1></body></html>
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#173b66"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg">
+<title>Розумний план-конспект</title>
+<style>
+:root{--navy:#173b66;--blue:#28669b;--bg:#f3f6fa;--ink:#1d2937;--muted:#68788d;--line:#dbe3ec;--white:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+header{background:linear-gradient(120deg,var(--navy),var(--blue));color:white;padding:25px 18px}
+.wrap{max-width:1050px;margin:auto}h1{font-size:clamp(24px,4vw,34px);margin:0}header p{margin:5px 0 0;color:#e5eff9}
+main{max-width:1050px;margin:auto;padding:22px 16px 50px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:18px;align-items:start}
+.card{background:white;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 4px 18px #173b660c}
+h2{font-size:21px;margin:0 0 14px;color:var(--navy)}label{display:block;font-weight:650;margin:0 0 6px}
+input,select,textarea{width:100%;padding:12px;border:1px solid #c8d4e2;border-radius:10px;font:inherit;background:white;color:var(--ink)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.full{grid-column:1/-1}
+button{border:0;border-radius:10px;padding:11px 15px;font:650 14px system-ui;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}.primary{background:var(--navy);color:white}.secondary{background:#edf3fa;color:var(--navy);border:1px solid #d7e2ee}.danger{background:#fff0f0;color:#9c2525;border:1px solid #f1cece}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}.hint,.small{font-size:13px;color:var(--muted)}#status{margin:12px 0;color:var(--navy);font-weight:650;min-height:24px}
+.history-item{display:block;width:100%;text-align:left;background:#f5f8fc;border:1px solid var(--line);margin:8px 0;padding:10px;border-radius:10px;color:var(--ink);font-weight:500}
+.history-item small{display:block;color:var(--muted);font-weight:400}.notice{background:#fff8e8;border:1px solid #f0d99f;padding:12px 14px;border-radius:10px;color:#694d12;font-size:14px}
+#result{min-height:260px;padding:10px 4px;outline:none;font-family:Arial,sans-serif;line-height:1.55}#result:focus{outline:2px solid #dceafb;border-radius:6px}
+#result h2{margin-top:20px}#result table{border-collapse:collapse;width:100%}#result td,#result th{border:1px solid #999;padding:6px;vertical-align:top}
+.hidden{display:none!important}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+@media(max-width:800px){.layout{grid-template-columns:1fr}.history{order:2}}
+@media(max-width:600px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.card{padding:16px}header{padding:22px 16px}}
+@media print{header,.form-card,.history,.toolbar,.notice,.small,#status{display:none!important}body{background:white}main{padding:0}.layout{display:block}.card{border:0;box-shadow:none;padding:0}#result{padding:0}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>Розумний план-конспект</h1><p>Універсальний генератор адаптованих уроків для спеціальної школи</p></div></header>
+<main>
+<div class="layout">
+<div>
+<section class="card form-card">
+<h2>Параметри уроку</h2>
+<div class="grid">
+<div><label for="subject">Навчальний предмет *</label><input id="subject" placeholder="Наприклад: математика"></div>
+<div><label for="grade">Клас *</label><input id="grade" placeholder="Наприклад: 5 клас"></div>
+<div class="full"><label for="topic">Тема уроку *</label><input id="topic" placeholder="Введіть тему уроку"></div>
+<div><label for="duration">Тривалість</label><select id="duration"><option>45 хвилин</option><option>40 хвилин</option><option>35 хвилин</option><option>30 хвилин</option></select></div>
+<div><label for="kind">Тип уроку</label><select id="kind"><option>Визначити автоматично</option><option>Засвоєння нових знань</option><option>Формування умінь і навичок</option><option>Закріплення знань</option><option>Узагальнення та систематизація</option><option>Комбінований урок</option></select></div>
+<div class="full"><label for="extra">Додаткові побажання (необов'язково)</label><textarea id="extra" rows="3" placeholder="Наприклад: більше практичних завдань, робота з картками..."></textarea></div>
+</div>
+<div class="actions"><button class="primary" id="generate">Згенерувати конспект</button><button class="secondary" id="reset">Очистити поля</button></div>
+<p class="hint">Під час генерації потрібен інтернет. Історія конспектів зберігається у пам'яті цього браузера на цьому пристрої.</p>
+</section>
+<div id="status" role="status"></div>
+<section class="card hidden" id="editorCard">
+<h2>Готовий конспект <span class="small">(можна редагувати прямо в тексті)</span></h2>
+<div class="toolbar">
+<button class="primary" id="save">Зберегти зміни</button><button class="secondary" id="word">Завантажити Word</button><button class="secondary" id="pdf">Друк / PDF</button><button class="secondary" id="copy">Копіювати</button>
+</div>
+<div id="result" contenteditable="true" spellcheck="true"></div>
+</section>
+<div class="notice"><strong>Педагогічна перевірка обов'язкова.</strong> Конспект є методичним проєктом. Перевірте відповідність освітній програмі, індивідуальним можливостям учнів, стану здоров'я, вимогам безпеки та обладнанню.</div>
+</div>
+<aside class="card history">
+<h2>Мої конспекти</h2><p class="small">Останні збережені роботи на цьому пристрої.</p>
+<div id="historyList"></div><button class="danger" id="clearHistory">Очистити історію</button>
+</aside>
+</div>
+<p class="small">Для встановлення як додатка на Android відкрийте захищену HTTPS-адресу сайту в Chrome → меню ⋮ → «Установити додаток» / «Додати на головний екран».</p>
+</main>
+<script>
+const $=id=>document.getElementById(id), KEY="rozumnyi-plan-history-v2";let activeId=null;
+function history(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch{return []}}
+function setHistory(a){localStorage.setItem(KEY,JSON.stringify(a.slice(0,50)));renderHistory()}
+function renderHistory(){const box=$("historyList"),items=history();box.innerHTML="";if(!items.length){box.innerHTML='<p class="small">Поки що немає збережених конспектів.</p>';return}
+items.forEach(x=>{const b=document.createElement("button");b.className="history-item";b.innerHTML=`${esc(x.topic)}<small>${esc(x.subject)} · ${esc(x.grade)} · ${new Date(x.date).toLocaleString("uk-UA")}</small>`;b.onclick=()=>loadItem(x.id);box.appendChild(b)})}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function plainHtml(t){return esc(t).replace(/^### (.*)$/gm,"<h3>$1</h3>").replace(/^## (.*)$/gm,"<h2>$1</h2>").replace(/^# (.*)$/gm,"<h2>$1</h2>").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br>")}
+function saveCurrent(){if(!$("result").innerText.trim())return;const a=history(),i=a.findIndex(x=>x.id===activeId),old=i>=0?a[i]:{};const item={...old,id:activeId||String(Date.now()),subject:$("subject").value,grade:$("grade").value,topic:$("topic").value,date:old.date||new Date().toISOString(),text:$("result").innerText};activeId=item.id;if(i>=0)a.splice(i,1);a.unshift(item);setHistory(a);$("status").textContent="Конспект збережено в історії цього браузера."}
+function loadItem(id){const x=history().find(y=>y.id===id);if(!x)return;activeId=id;$("subject").value=x.subject;$("grade").value=x.grade;$("topic").value=x.topic;$("result").innerHTML=plainHtml(x.text);$("editorCard").classList.remove("hidden");$("status").textContent="Відкрито збережений конспект. Можна редагувати.";window.scrollTo({top:$("editorCard").offsetTop-15,behavior:"smooth"})}
+$("generate").onclick=async()=>{const subject=$("subject").value.trim(),grade=$("grade").value.trim(),topic=$("topic").value.trim();if(!subject||!grade||!topic){$("status").textContent="Заповніть предмет, клас і тему уроку.";return}
+$("generate").disabled=true;$("status").textContent="Готую конспект...";$("editorCard").classList.add("hidden");
+try{const r=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subject,grade,topic,duration:$("duration").value,lessonType:$("kind").value,extra:$("extra").value.trim()})});const d=await r.json();if(!r.ok)throw Error(d.error||"Не вдалося створити конспект");if(!d.text)throw Error("Сервіс не повернув текст");activeId=String(Date.now());$("result").innerHTML=plainHtml(d.text);$("editorCard").classList.remove("hidden");$("status").textContent="Конспект готовий. Перевірте та відредагуйте його, після чого натисніть «Зберегти зміни».";window.scrollTo({top:$("editorCard").offsetTop-15,behavior:"smooth"})}
+catch(e){$("status").textContent="Помилка: "+e.message}finally{$("generate").disabled=false}};
+$("save").onclick=saveCurrent;$("reset").onclick=()=>{["subject","grade","topic","extra"].forEach(k=>$(k).value="");$("editorCard").classList.add("hidden");$("status").textContent="Поля очищено.";activeId=null};
+$("clearHistory").onclick=()=>{if(confirm("Видалити всі збережені конспекти з цього браузера?")){localStorage.removeItem(KEY);renderHistory();$("status").textContent="Історію очищено."}};
+$("pdf").onclick=()=>window.print();$("copy").onclick=async()=>{await navigator.clipboard.writeText($("result").innerText);$("status").textContent="Текст скопійовано."};
+$("word").onclick=()=>{const body=$("result").innerHTML;const doc=`<html><head><meta charset="utf-8"><style>body{font-family:Arial;font-size:12pt;line-height:1.5}table{border-collapse:collapse}td,th{border:1px solid #777;padding:5px}</style></head><body>${body}</body></html>`;const blob=new Blob(["\ufeff",doc],{type:"application/msword"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="План-конспект.doc";a.click();URL.revokeObjectURL(a.href)};
+renderHistory();if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));
+</script>
+</body></html>
