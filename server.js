@@ -37,7 +37,7 @@ const server = http.createServer(async (req, res) => {
 
       const prompt = `АУДИТОРІЯ: ${cls} з легкою розумовою відсталістю (легкими інтелектуальними порушеннями)\nПРЕДМЕТ: ${sub}\nТЕМА: ${topic}\nТИП УРОКУ: ${type}\nПОБАЖАННЯ: ${wishes}`;
 
-      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      const response = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': 'Bearer ' + IKEY,
