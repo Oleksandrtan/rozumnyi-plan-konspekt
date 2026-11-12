@@ -4,7 +4,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const IKEY = process.env.OPENAI_API_KEY;
-const MODEL = 'gpt-4o-mini';
+const MODEL = 'deepseek-chat';
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
