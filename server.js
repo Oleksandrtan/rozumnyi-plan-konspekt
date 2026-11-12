@@ -58,7 +58,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ result: text }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end("Помилка сервера: " + err.message);
+     console.log('API error:', err);
     }
     return;
   }
