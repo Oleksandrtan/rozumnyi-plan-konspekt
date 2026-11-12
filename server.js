@@ -42,8 +42,7 @@ const server = http.createServer(async (req, res) => {
 ПОБАЖАННЯ: ${wishes}
 
 Склади повний практичний план-конспект українською мовою.`;
-
-                body: JSON.stringify({
+                body: JSON.stringify{
             const response = await fetch('https://api.deepseek.com/v1/chat/completions'),{
                 method: 'POST',
                 headers: {
