@@ -3,8 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT || 3000;
-const IKEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
-const MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const IKEY = process.env.OPENAI_API_KEY;
+const MODEL = process.env.OPENAI_MODEL || 'gemini-1.5-flash';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const MIME = {
@@ -40,15 +40,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && u.pathname === '/api/generate') {
       if (!IKEY) {
-        return sendJson(res, 500, {
-          error: 'Не налаштовано DEEPSEEK_API_KEY (або OPENAI_API_KEY). Перевірте README.'
-        });
+        return sendJson(res, 500, { error: 'Не налаштовано OPENAI_API_KEY.' });
       }
 
       let body = '';
       for await (const chunk of req) {
         body += chunk;
-        if (body.length > 1_000_000) {
+        if (body.length > 1000000) {
           return sendJson(res, 413, { error: 'Занадто великий запит' });
         }
       }
@@ -66,86 +64,75 @@ const server = http.createServer(async (req, res) => {
       const type = data.type || 'Загальний урок';
       const wishes = data.extra || 'Немає';
 
-      const prompt = `АУДИТОРІЯ: ${cls} з легкою розумовою відсталістю (легкими інтелектуальними порушеннями)
+      const prompt = `АУДИТОРІЯ: ${cls} з легким розумовим відставанням (легкими інтелектуальними порушеннями).
 ПРЕДМЕТ: ${sub}
 ТЕМА: ${topic}
 ТИП УРОКУ: ${type}
-ПОБАЖАННЯ: ${wishes}
+ПОБАЖАННЯ ТА ОСОБЛИВОСТІ: ${wishes}
 
-Склади детальний план-конспект уроку українською мовою.`;
+Склади детальний, але простий план-конспект уроку з адаптацією для цих дітей. Використовуй короткі речення, яскраві приклади, ігрові моменти та візуальні підказки.`;
 
-      const apiRes = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + IKEY,
-          'Content-Type': 'application/json'
+      const requestBody = {
+        contents: [{ parts: [{ text: prompt }] }]
+      };
+
+      const apiReq = http.request(
+        `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${IKEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
         },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [{ role: 'user', content: prompt }]
-        })
-      });
-
-      const raw = await apiRes.text();
-      let result = null;
-      try {
-        result = JSON.parse(raw);
-      } catch {
-        // залишаємо result = null
-      }
-
-      if (!apiRes.ok) {
-        return sendJson(res, 502, {
-          error: 'Помилка DeepSeek API',
-          status: apiRes.status,
-          details: result?.error || raw.slice(0, 500)
-        });
-      }
-
-      const text = result?.choices?.[0]?.message?.content;
-      if (!text) {
-        return sendJson(res, 502, {
-          error: 'DeepSeek не повернув текст',
-          details: result
-        });
-      }
-
-      return sendJson(res, 200, { result: text });
-    }
-
-    if (req.method === 'GET') {
-      const urlPath = decodeURIComponent(u.pathname);
-      const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
-      const filePath = path.join(PUBLIC_DIR, rel);
-
-      if (!filePath.startsWith(PUBLIC_DIR + path.sep)) {
-        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-        return res.end('Forbidden');
-      }
-
-      fs.readFile(filePath, (err, content) => {
-        if (err) {
-          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-          return res.end('Not Found');
+        (apiRes) => {
+          let apiData = '';
+          apiRes.on('data', (chunk) => { apiData += chunk; });
+          apiRes.on('end', () => {
+            try {
+              const parsed = JSON.parse(apiData);
+              if (parsed.candidates && parsed.candidates[0]?.content?.parts?.[0]?.text) {
+                const text = parsed.candidates[0].content.parts[0].text;
+                return sendJson(res, 200, { response: text });
+              } else {
+                return sendJson(res, 500, { error: 'Помилка API', Details: parsed });
+              }
+            } catch {
+              return sendJson(res, 500, { error: 'Помилка парсингу відповіді' });
+            }
+          });
         }
+      );
 
-        const ext = path.extname(filePath).toLowerCase();
-        res.writeHead(200, {
-          'Content-Type': MIME[ext] || 'application/octet-stream'
-        });
-        res.end(content);
+      apiReq.on('error', (err) => {
+        return sendJson(res, 500, { error: 'Помилка запиту до AI', details: err.message });
       });
+
+      apiReq.write(JSON.stringify(requestBody));
+      apiReq.end();
       return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Not Found');
+    const uriPath = decodeURIComponent(u.pathname);
+    let relUrl = uriPath === '/' ? 'index.html' : uriPath.replace(/^\/+/, '');
+    let filePath = path.join(PUBLIC_DIR, relUrl);
+
+    if (!filePath.startsWith(PUBLIC_DIR + path.sep)) {
+      res.writeHead(403);
+      return res.end('Forbidden');
+    }
+
+    fs.readFile(filePath, (err, content) => {
+      if (err) {
+        res.writeHead(404);
+        return res.end('Not Found');
+      }
+      const ext = path.extname(filePath).toLowerCase();
+      res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+      res.end(content);
+    });
+
   } catch (err) {
-    console.error('Server error:', err);
+    console.error('Server error', err);
     if (!res.headersSent) {
       sendJson(res, 500, { error: 'Внутрішня помилка сервера' });
-    } else {
-      res.end();
     }
   }
 });
