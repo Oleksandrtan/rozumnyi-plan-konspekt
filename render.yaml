@@ -2,7 +2,7 @@ services:
   - type: web
     name: rozumnyi-plan-konspekt
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
