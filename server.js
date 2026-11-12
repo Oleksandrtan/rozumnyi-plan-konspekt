@@ -40,11 +40,10 @@ const server = http.createServer(async (req, res) => {
 ТЕМА: ${topic}
 ТИП УРОКУ: ${type}
 ПОБАЖАННЯ: ${wishes}
-
 const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
   method: 'POST',
   headers: {
-    'Authorization': `Bearer ${IKEY}`,
+    'Authorization': 'Bearer ' + IKEY,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
@@ -54,8 +53,6 @@ const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
     ]
   })
 });
-
-            const json = await response.json();
             const text = json.choices?.[0]?.message?.content || "Помилка від OpenAI";
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
