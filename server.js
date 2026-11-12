@@ -54,7 +54,7 @@ const server = http.createServer(async (req, res) => {
       const result = await response.json();
       const text = result.choices?.[0]?.message?.content || "Помилка від OpenAI";
 
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end(JSON.stringify({ result: text }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'text/plain' });
