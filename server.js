@@ -40,7 +40,7 @@ async function callGemini(prompt) {
   }
 
   const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT);
