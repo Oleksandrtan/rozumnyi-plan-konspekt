@@ -7,8 +7,7 @@ const PORT = process.env.PORT || 3000;
 // Ключ Gemini (з Google AI Studio: https://aistudio.google.com/app/apikey)
 // НЕ плутати з OPENAI_API_KEY чи DEEPSEEK_API_KEY.
 const IKEY = process.env.GEMINI_API_KEY;
-const PUBLIC_DIR = path.join(__dirname, 'public');
-const REQUEST_TIMEOUT_MS = 60_000;
+const MODEL = "gemini-2.5-flash";
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
