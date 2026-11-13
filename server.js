@@ -9,7 +9,6 @@ const API_KEY = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
 // Адреса автоматично формується з назви моделі
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TIMEOUT = 60000;
