@@ -1,0 +1,11 @@
+
+{
+  "name": "Розумний план-конспект",
+  "short_name": "План-конспект",
+  "description": "Генератор планів-конспектів для педагогів",
+  "lang": "uk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb"
+}
