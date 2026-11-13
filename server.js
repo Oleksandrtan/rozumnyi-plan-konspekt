@@ -240,11 +240,14 @@ const server = http.createServer(async (req, res) => {
           });
         }
 
-        return sendJson(res, 502, {
-          error: 'Помилка Gemini API',
-          status: err.status || 502,
-          details: err.upstream?.error?.message || err.message
-        });
+       console.error('GEMINI FULL ERROR:', JSON.stringify(err.upstream || {}, null, 2));
+
+return sendJson(res, 502, {
+  error: 'Помилка Gemini API',
+  status: err.status || 502,
+  details: err.upstream?.error?.message || err.message,
+  model: MODEL
+});
       }
     }
 
