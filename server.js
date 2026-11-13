@@ -7,7 +7,7 @@ const API_KEY = process.env.GEMINI_API_KEY;
 
 // Назва моделі. Можна змінити через Render Environment.
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
 // Адреса автоматично формується з назви моделі
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
