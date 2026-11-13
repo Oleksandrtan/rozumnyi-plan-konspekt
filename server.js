@@ -4,8 +4,8 @@ const path = require('path');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = "gemini-3.8-flash";
-
+const MODEL = "gemini-1.5-flash";
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TIMEOUT = 60000;
 
