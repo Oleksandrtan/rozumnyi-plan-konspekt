@@ -1,3 +1,4 @@
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -9,6 +10,7 @@ const API_KEY = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
 // Адреса автоматично формується з назви моделі
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TIMEOUT = 60000;
@@ -40,7 +42,7 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
-const url = API_URL;
+// Звернення до Gemini API
 async function callGemini(prompt) {
   if (!API_KEY) {
     throw new Error(
