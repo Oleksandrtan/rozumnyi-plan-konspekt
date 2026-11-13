@@ -41,7 +41,7 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
-// Звернення до Gemini API
+const url = API_URL;
 async function callGemini(prompt) {
   if (!API_KEY) {
     throw new Error(
