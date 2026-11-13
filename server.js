@@ -4,8 +4,13 @@ const path = require('path');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = "gemini-1.5-flash";
+
+// Назва моделі. Можна змінити через Render Environment.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+
+// Адреса автоматично формується з назви моделі
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TIMEOUT = 60000;
 
@@ -22,59 +27,73 @@ const MIME = {
   '.ico': 'image/x-icon'
 };
 
+// Відправлення JSON
 function sendJson(res, status, data) {
   if (res.headersSent) return;
+
   const body = JSON.stringify(data);
+
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body)
   });
+
   res.end(body);
 }
 
+// Звернення до Gemini API
 async function callGemini(prompt) {
   if (!API_KEY) {
     throw new Error(
-      'Не налаштовано GEMINI_API_KEY. Додайте API-ключ у змінні середовища.'
+      'Не налаштовано GEMINI_API_KEY. Додайте API-ключ у Render Environment.'
     );
   }
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
-
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT);
+
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, TIMEOUT);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(API_URL, {
       method: 'POST',
+
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': API_KEY
       },
+
       body: JSON.stringify({
         contents: [
           {
             role: 'user',
-            parts: [{ text: prompt }]
+            parts: [
+              {
+                text: prompt
+              }
+            ]
           }
         ],
+
         generationConfig: {
           temperature: 0.7,
           maxOutputTokens: 4096
         }
       }),
+
       signal: controller.signal
     });
 
     const raw = await response.text();
+
     let result;
 
     try {
       result = JSON.parse(raw);
     } catch {
       throw new Error(
-        `Некоректна відповідь Google. HTTP ${response.status}: ${raw.slice(0, 300)}`
+        `Некоректна відповідь Google. HTTP ${response.status}: ${raw.slice(0, 500)}`
       );
     }
 
@@ -107,24 +126,29 @@ async function callGemini(prompt) {
   }
 }
 
+// Читання запиту
 async function readRequest(req) {
   let body = '';
+  let size = 0;
 
   for await (const chunk of req) {
-    body += chunk.toString();
+    size += chunk.length;
 
-    if (Buffer.byteLength(body) > 1000000) {
-      throw new Error('Занадто великий запит');
+    if (size > 1000000) {
+      throw new Error('Занадто великий запит. Максимум 1 МБ.');
     }
+
+    body += chunk.toString('utf8');
   }
 
   try {
     return JSON.parse(body || '{}');
   } catch {
-    throw new Error('Некоректний JSON');
+    throw new Error('Некоректний JSON у запиті.');
   }
 }
 
+// Формування промпту
 function makePrompt(data) {
   const subject = String(data.subject || 'Без предмета');
   const grade = String(data.grade || '1 клас');
@@ -138,6 +162,7 @@ function makePrompt(data) {
 Створи детальний, методично грамотний план-конспект уроку.
 
 ВХІДНІ ДАНІ:
+
 Предмет: ${subject}
 Клас: ${grade}
 Тема: ${topic}
@@ -145,6 +170,7 @@ function makePrompt(data) {
 Додаткові побажання: ${extra}
 
 ВИМОГИ:
+
 1. Пиши виключно українською мовою.
 2. Враховуй вікові особливості учнів.
 3. Адаптуй завдання до зазначеного класу.
@@ -157,8 +183,11 @@ function makePrompt(data) {
 10. Не повторюй однакові завдання для різних класів без адаптації.
 11. Не вигадуй нормативних вимог або навчальних програм.
 12. Підсумуй очікувані результати навчання.
+13. Враховуй особливі освітні потреби учнів спеціальної школи.
+14. Передбачай індивідуальну допомогу учням, якщо вона потрібна.
 
 СТРУКТУРА:
+
 1. Тема уроку.
 2. Мета уроку.
 3. Навчальні завдання.
@@ -176,6 +205,67 @@ function makePrompt(data) {
 `;
 }
 
+// Статичні файли
+function serveStatic(req, res, pathname) {
+  let decodedPath;
+
+  try {
+    decodedPath = decodeURIComponent(pathname);
+  } catch {
+    return sendJson(res, 400, {
+      error: 'Некоректний шлях'
+    });
+  }
+
+  const relativePath = decodedPath === '/'
+    ? 'index.html'
+    : decodedPath.replace(/^\/+/, '');
+
+  const filePath = path.resolve(PUBLIC_DIR, relativePath);
+  const relative = path.relative(PUBLIC_DIR, filePath);
+
+  if (
+    relative === '..' ||
+    relative.startsWith('..' + path.sep) ||
+    path.isAbsolute(relative)
+  ) {
+    return sendJson(res, 403, {
+      error: 'Доступ заборонено'
+    });
+  }
+
+  fs.readFile(filePath, (err, content) => {
+    if (err) {
+      console.error('[FILE NOT FOUND]', relativePath);
+
+      if (!res.headersSent) {
+        res.writeHead(404, {
+          'Content-Type': 'text/plain; charset=utf-8'
+        });
+
+        res.end('Файл не знайдено: ' + relativePath);
+      }
+
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Content-Length': content.length,
+      'X-Content-Type-Options': 'nosniff'
+    });
+
+    if (req.method === 'HEAD') {
+      return res.end();
+    }
+
+    res.end(content);
+  });
+}
+
+// Основний сервер
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(
@@ -183,8 +273,11 @@ const server = http.createServer(async (req, res) => {
       `http://${req.headers.host || 'localhost'}`
     );
 
-    // Перевірка сервера
-    if (req.method === 'GET' && url.pathname === '/health') {
+    // Перевірка роботи сервера
+    if (
+      (req.method === 'GET' || req.method === 'HEAD') &&
+      url.pathname === '/health'
+    ) {
       return sendJson(res, 200, {
         ok: true,
         app: 'rozumnyi-plan-konspekt',
@@ -193,7 +286,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // Генерація конспекту
+    // Генерація плану-конспекту
     if (
       req.method === 'POST' &&
       url.pathname === '/api/generate'
@@ -203,7 +296,9 @@ const server = http.createServer(async (req, res) => {
       try {
         data = await readRequest(req);
       } catch (err) {
-        return sendJson(res, 400, { error: err.message });
+        return sendJson(res, 400, {
+          error: err.message
+        });
       }
 
       if (!data.subject || !data.topic) {
@@ -216,13 +311,15 @@ const server = http.createServer(async (req, res) => {
         const prompt = makePrompt(data);
         const answer = await callGemini(prompt);
 
+        console.log('[GEMINI SUCCESS]', MODEL);
+
         return sendJson(res, 200, {
           success: true,
           response: answer
         });
 
       } catch (err) {
-        console.error('[GEMINI ERROR]', err.message);
+        console.error('[GEMINI ERROR]', err);
 
         if (err.name === 'AbortError') {
           return sendJson(res, 504, {
@@ -237,68 +334,26 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // Статичні файли
-    if (req.method === 'GET') {
-      let decodedPath;
-
-      try {
-        decodedPath = decodeURIComponent(url.pathname);
-      } catch {
-        return sendJson(res, 400, { error: 'Некоректний шлях' });
-      }
-
-      const relativePath =
-        decodedPath === '/' ? 'index.html' : decodedPath.replace(/^\/+/, '');
-
-      const filePath = path.resolve(PUBLIC_DIR, relativePath);
-      const relative = path.relative(PUBLIC_DIR, filePath);
-
-      if (
-        relative.startsWith('..') ||
-        path.isAbsolute(relative)
-      ) {
-        return sendJson(res, 403, { error: 'Доступ заборонено' });
-      }
-
-      fs.readFile(filePath, (err, content) => {
-        if (err) {
-          res.writeHead(404, {
-            'Content-Type': 'text/plain; charset=utf-8'
-          });
-          return res.end('Файл не знайдено: ' + relativePath);
-        }
-
-        const ext = path.extname(filePath).toLowerCase();
-
-        res.writeHead(200, {
-          'Content-Type': MIME[ext] || 'application/octet-stream',
-          'Content-Length': content.length,
-          'X-Content-Type-Options': 'nosniff'
-        });
-
-        res.end(content);
-      });
-
-      return;
+    // Віддавання сайту та інших файлів
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      return serveStatic(req, res, url.pathname);
     }
 
-    res.writeHead(405, {
-      'Content-Type': 'application/json; charset=utf-8'
+    return sendJson(res, 405, {
+      error: 'Метод не підтримується'
     });
-    res.end(JSON.stringify({ error: 'Метод не підтримується' }));
 
   } catch (err) {
     console.error('[SERVER ERROR]', err);
 
-    if (!res.headersSent) {
-      sendJson(res, 500, {
-        error: 'Внутрішня помилка сервера',
-        details: err.message
-      });
-    }
+    return sendJson(res, 500, {
+      error: 'Внутрішня помилка сервера',
+      details: err.message
+    });
   }
 });
 
+// Запуск сервера
 server.listen(PORT, '0.0.0.0', () => {
   console.log('--------------------------------');
   console.log('Розумний план-конспект запущено');
