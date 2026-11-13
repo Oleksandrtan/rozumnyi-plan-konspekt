@@ -1,19 +1,33 @@
 
+'use strict';
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = Number(process.env.PORT) || 3000;
+// ========================================
+// НАЛАШТУВАННЯ СЕРВЕРА
+// ========================================
+
+const PORT = Number(process.env.PORT) || 10000;
+
 const API_KEY = process.env.GEMINI_API_KEY;
 
-// Назва моделі. Можна змінити через Render Environment.
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+// Використовуємо актуальну модель Google.
+// Стара модель gemini-1.5-flash більше не використовується.
+const MODEL = 'gemini-3.8-flash';
 
-// Адреса автоматично формується з назви моделі
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+const API_URL =
+  `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
 const TIMEOUT = 60000;
+const MAX_REQUEST_SIZE = 1000000;
+
+// ========================================
+// ТИПИ ФАЙЛІВ
+// ========================================
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -25,10 +39,16 @@ const MIME = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf'
 };
 
-// Відправлення JSON
+// ========================================
+// ВІДПРАВЛЕННЯ JSON
+// ========================================
+
 function sendJson(res, status, data) {
   if (res.headersSent) return;
 
@@ -36,17 +56,123 @@ function sendJson(res, status, data) {
 
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body)
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store'
   });
 
   res.end(body);
 }
 
-// Звернення до Gemini API
+// ========================================
+// ЧИТАННЯ ВХІДНОГО ЗАПИТУ
+// ========================================
+
+async function readRequest(req) {
+  let body = '';
+  let size = 0;
+
+  for await (const chunk of req) {
+    size += chunk.length;
+
+    if (size > MAX_REQUEST_SIZE) {
+      throw new Error('Занадто великий запит. Максимум 1 МБ.');
+    }
+
+    body += chunk.toString('utf8');
+  }
+
+  try {
+    return JSON.parse(body || '{}');
+  } catch {
+    throw new Error('Некоректний формат JSON.');
+  }
+}
+
+// ========================================
+// ФОРМУВАННЯ ПРОМПТУ
+// ========================================
+
+function makePrompt(data) {
+  const subject = String(data.subject || 'Без предмета');
+  const grade = String(data.grade || '1 клас');
+  const topic = String(data.topic || 'Без теми');
+  const type = String(data.type || 'Комбінований урок');
+  const extra = String(data.extra || 'Немає');
+
+  return `
+Ти — досвідчений український педагог, учитель спеціальної школи та педагог-дефектолог.
+
+Твоє завдання — створити детальний, методично грамотний план-конспект уроку.
+
+ВХІДНІ ДАНІ:
+
+Предмет: ${subject}
+Клас: ${grade}
+Тема: ${topic}
+Тип уроку: ${type}
+Додаткові побажання: ${extra}
+
+ОСНОВНІ ВИМОГИ:
+
+1. Пиши виключно українською мовою.
+2. Враховуй вік та освітні можливості учнів.
+3. Адаптуй зміст до зазначеного класу.
+4. Використовуй короткі, зрозумілі речення.
+5. Додавай цікаві ігрові вправи.
+6. Передбачай практичні завдання.
+7. Використовуй наочність та візуальні підказки.
+8. Вказуй конкретний час кожного етапу.
+9. Формулюй навчальну, розвивальну та виховну мету.
+10. Передбачай корекційно-розвиткову роботу.
+11. Враховуй особливі освітні потреби учнів.
+12. Передбачай індивідуальну допомогу.
+13. Не повторюй однакові завдання для різних класів без адаптації.
+14. Не вигадуй нормативних вимог та навчальних програм.
+15. Формулюй конкретні очікувані результати.
+
+СТРУКТУРА ПЛАНУ-КОНСПЕКТУ:
+
+1. Тема уроку.
+2. Мета уроку.
+3. Навчальні завдання.
+4. Розвивальні завдання.
+5. Виховні завдання.
+6. Корекційна мета.
+7. Обладнання.
+8. Очікувані результати.
+9. Хід уроку з детальним таймінгом.
+10. Підсумок уроку.
+11. Рефлексія.
+12. Домашнє завдання, якщо воно доречне.
+
+ДЕТАЛІЗАЦІЯ ХОДУ УРОКУ:
+
+Для кожного етапу зазнач:
+- Назву етапу.
+- Час проведення.
+- Дії вчителя.
+- Дії учнів.
+- Конкретні завдання та вправи.
+- Необхідні матеріали.
+
+Оформи відповідь охайно, з підзаголовками, нумерацією та зрозумілими формулюваннями.
+`;
+}
+
+// ========================================
+// ЗАПИТ ДО GEMINI API
+// ========================================
+
 async function callGemini(prompt) {
   if (!API_KEY) {
     throw new Error(
-      'Не налаштовано GEMINI_API_KEY. Додайте API-ключ у Render Environment.'
+      'Не налаштовано GEMINI_API_KEY. Додайте ключ у Render → Environment.'
+    );
+  }
+
+  if (typeof fetch !== 'function') {
+    throw new Error(
+      'Для роботи потрібен Node.js версії 18 або новішої.'
     );
   }
 
@@ -57,6 +183,9 @@ async function callGemini(prompt) {
   }, TIMEOUT);
 
   try {
+    console.log('[GEMINI MODEL]', MODEL);
+    console.log('[GEMINI URL]', API_URL);
+
     const response = await fetch(API_URL, {
       method: 'POST',
 
@@ -94,119 +223,62 @@ async function callGemini(prompt) {
       result = JSON.parse(raw);
     } catch {
       throw new Error(
-        `Некоректна відповідь Google. HTTP ${response.status}: ${raw.slice(0, 500)}`
+        `Google повернув некоректну відповідь. HTTP ${response.status}: ${raw.slice(0, 500)}`
       );
     }
 
     if (!response.ok) {
+      const message =
+        result.error?.message || 'Невідома помилка Google API';
+
       throw new Error(
-        `Gemini HTTP ${response.status}: ${
-          result.error?.message || 'Невідома помилка Google'
-        }`
+        `Gemini HTTP ${response.status}: ${message}`
       );
     }
 
     const candidate = result.candidates?.[0];
 
-    const answer = candidate?.content?.parts
+    if (!candidate) {
+      throw new Error(
+        'Gemini не повернув результат. Перевірте налаштування API.'
+      );
+    }
+
+    const answer = candidate.content?.parts
       ?.map(part => part.text || '')
-      .join('');
+      .join('')
+      .trim();
 
     if (!answer) {
       throw new Error(
         `Gemini не повернув текст. Причина: ${
-          candidate?.finishReason || 'невідома'
+          candidate.finishReason || 'невідома'
         }`
       );
     }
 
+    console.log('[GEMINI SUCCESS]', MODEL);
+
     return answer;
+
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(
+        'Час очікування відповіді Gemini вичерпано. Спробуйте ще раз.'
+      );
+    }
+
+    throw err;
 
   } finally {
     clearTimeout(timer);
   }
 }
 
-// Читання запиту
-async function readRequest(req) {
-  let body = '';
-  let size = 0;
+// ========================================
+// ОБРОБКА СТАТИЧНИХ ФАЙЛІВ
+// ========================================
 
-  for await (const chunk of req) {
-    size += chunk.length;
-
-    if (size > 1000000) {
-      throw new Error('Занадто великий запит. Максимум 1 МБ.');
-    }
-
-    body += chunk.toString('utf8');
-  }
-
-  try {
-    return JSON.parse(body || '{}');
-  } catch {
-    throw new Error('Некоректний JSON у запиті.');
-  }
-}
-
-// Формування промпту
-function makePrompt(data) {
-  const subject = String(data.subject || 'Без предмета');
-  const grade = String(data.grade || '1 клас');
-  const topic = String(data.topic || 'Без теми');
-  const type = String(data.type || 'Комбінований урок');
-  const extra = String(data.extra || 'Немає');
-
-  return `
-Ти — досвідчений український педагог, учитель спеціальної школи та педагог-дефектолог.
-
-Створи детальний, методично грамотний план-конспект уроку.
-
-ВХІДНІ ДАНІ:
-
-Предмет: ${subject}
-Клас: ${grade}
-Тема: ${topic}
-Тип уроку: ${type}
-Додаткові побажання: ${extra}
-
-ВИМОГИ:
-
-1. Пиши виключно українською мовою.
-2. Враховуй вікові особливості учнів.
-3. Адаптуй завдання до зазначеного класу.
-4. Використовуй короткі, зрозумілі речення.
-5. Додавай ігрові вправи та практичні завдання.
-6. Передбачай наочність і візуальні підказки.
-7. Вказуй конкретний час кожного етапу.
-8. Формулюй мету, навчальні, розвивальні та виховні завдання.
-9. Передбачай корекційно-розвиткову роботу.
-10. Не повторюй однакові завдання для різних класів без адаптації.
-11. Не вигадуй нормативних вимог або навчальних програм.
-12. Підсумуй очікувані результати навчання.
-13. Враховуй особливі освітні потреби учнів спеціальної школи.
-14. Передбачай індивідуальну допомогу учням, якщо вона потрібна.
-
-СТРУКТУРА:
-
-1. Тема уроку.
-2. Мета уроку.
-3. Навчальні завдання.
-4. Розвивальні завдання.
-5. Виховні завдання.
-6. Корекційна мета.
-7. Обладнання.
-8. Очікувані результати.
-9. Хід уроку з детальним таймінгом.
-10. Підсумок уроку.
-11. Рефлексія.
-12. Домашнє завдання (якщо доречне).
-
-Оформи відповідь охайно, з підзаголовками та нумерованими етапами.
-`;
-}
-
-// Статичні файли
 function serveStatic(req, res, pathname) {
   let decodedPath;
 
@@ -214,7 +286,7 @@ function serveStatic(req, res, pathname) {
     decodedPath = decodeURIComponent(pathname);
   } catch {
     return sendJson(res, 400, {
-      error: 'Некоректний шлях'
+      error: 'Некоректний шлях до файлу.'
     });
   }
 
@@ -223,6 +295,7 @@ function serveStatic(req, res, pathname) {
     : decodedPath.replace(/^\/+/, '');
 
   const filePath = path.resolve(PUBLIC_DIR, relativePath);
+
   const relative = path.relative(PUBLIC_DIR, filePath);
 
   if (
@@ -231,7 +304,7 @@ function serveStatic(req, res, pathname) {
     path.isAbsolute(relative)
   ) {
     return sendJson(res, 403, {
-      error: 'Доступ заборонено'
+      error: 'Доступ заборонено.'
     });
   }
 
@@ -252,11 +325,16 @@ function serveStatic(req, res, pathname) {
 
     const ext = path.extname(filePath).toLowerCase();
 
-    res.writeHead(200, {
-      'Content-Type': MIME[ext] || 'application/octet-stream',
+    const headers = {
+      'Content-Type':
+        MIME[ext] || 'application/octet-stream',
+
       'Content-Length': content.length,
+
       'X-Content-Type-Options': 'nosniff'
-    });
+    };
+
+    res.writeHead(200, headers);
 
     if (req.method === 'HEAD') {
       return res.end();
@@ -266,7 +344,10 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-// Основний сервер
+// ========================================
+// ОСНОВНИЙ HTTP-СЕРВЕР
+// ========================================
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(
@@ -310,9 +391,8 @@ const server = http.createServer(async (req, res) => {
 
       try {
         const prompt = makePrompt(data);
-        const answer = await callGemini(prompt);
 
-        console.log('[GEMINI SUCCESS]', MODEL);
+        const answer = await callGemini(prompt);
 
         return sendJson(res, 200, {
           success: true,
@@ -320,13 +400,7 @@ const server = http.createServer(async (req, res) => {
         });
 
       } catch (err) {
-        console.error('[GEMINI ERROR]', err);
-
-        if (err.name === 'AbortError') {
-          return sendJson(res, 504, {
-            error: 'Gemini не відповів вчасно. Спробуйте ще раз.'
-          });
-        }
+        console.error('[GEMINI ERROR]', err.message);
 
         return sendJson(res, 502, {
           error: 'Помилка Gemini API',
@@ -335,13 +409,16 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // Віддавання сайту та інших файлів
-    if (req.method === 'GET' || req.method === 'HEAD') {
+    // Віддавання файлів сайту
+    if (
+      req.method === 'GET' ||
+      req.method === 'HEAD'
+    ) {
       return serveStatic(req, res, url.pathname);
     }
 
     return sendJson(res, 405, {
-      error: 'Метод не підтримується'
+      error: 'Метод не підтримується.'
     });
 
   } catch (err) {
@@ -354,12 +431,18 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Запуск сервера
+// ========================================
+// ЗАПУСК
+// ========================================
+
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('--------------------------------');
-  console.log('Розумний план-конспект запущено');
+  console.log('================================');
+  console.log('РОЗУМНИЙ ПЛАН-КОНСПЕКТ');
+  console.log('Сервер успішно запущено');
   console.log('Порт:', PORT);
-  console.log('Модель:', MODEL);
+  console.log('Модель Gemini:', MODEL);
   console.log('API ключ:', API_KEY ? 'Налаштований' : 'ВІДСУТНІЙ');
-  console.log('--------------------------------');
+  console.log('Адреса API:', API_URL);
+  console.log('Папка сайту:', PUBLIC_DIR);
+  console.log('================================');
 });
