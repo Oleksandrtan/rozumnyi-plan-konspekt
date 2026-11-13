@@ -79,7 +79,7 @@ catch(e){$("status").textContent="Помилка: "+e.message}finally{$("generat
 $("save").onclick=saveCurrent;$("reset").onclick=()=>{["subject","grade","topic","extra"].forEach(k=>$(k).value="");$("editorCard").classList.add("hidden");$("status").textContent="Поля очищено.";activeId=null};
 $("clearHistory").onclick=()=>{if(confirm("Видалити всі збережені конспекти з цього браузера?")){localStorage.removeItem(KEY);renderHistory();$("status").textContent="Історію очищено."}};
 $("pdf").onclick=()=>window.print();$("copy").onclick=async()=>{await navigator.clipboard.writeText($("result").innerText);$("status").textContent="Текст скопійовано."};
-$("word").onclick=()=>{const body=$("result").innerHTML;const doc=`<html><head><meta charset="utf-8"><style>body{font-family:Arial;font-size:12pt;line-height:1.5}table{border-collapse:collapse}td,th{border:1px solid #777;padding:5px}</style></head><body>${body}</body></html>`;const blob=new Blob(["\ufeff",doc],{type:"application/msword"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="План-конспект.doc";a.click();URL.revokeObjectURL(a.href)};
+
 renderHistory();if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));
 </script>
 </body></html>
