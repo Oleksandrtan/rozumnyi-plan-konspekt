@@ -6,10 +6,7 @@ const PORT = process.env.PORT || 3000;
 
 // Ключ Gemini (з Google AI Studio: https://aistudio.google.com/app/apikey)
 // НЕ плутати з OPENAI_API_KEY чи DEEPSEEK_API_KEY.
-const IKEY =
-  process.env.GEMINI_API_KEY ||
- 
-
+const IKEY = process.env.GEMINI_API_KEY;.
 // Актуальні моделі: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
