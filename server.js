@@ -533,11 +533,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Генерація плану-конспекту.
-    if (
-      req.method === 'POST' &&
-      url.pathname === '/api/generate'
-    ) {
-      let data;
+    // Нормалізуємо шлях (видаляємо слеш у кінці, якщо є)
+const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
+
+// Генерація плану-конспекту.
+if (
+  req.method === 'POST' &&
+  normalizedPath === '/api/generate'
+) {
+  // ... код генерації
+}
+  
+          let data;
 
       try {
         data = await readRequest(req);
