@@ -147,7 +147,7 @@ function makePrompt(data) {
     або результатів, яких не можна обґрунтувати.
 11. Не пиши загальні фрази замість конкретних завдань.
     Усі вправи мають відповідати темі уроку.
-12. Розподіл часу всех етапів має разом дорівнювати
+12. Розподіл часу усіх етапів має разом дорівнювати
     тривалості уроку.
 13. Домашнє завдання має бути посильним;
     якщо воно недоречне, так і зазнач.
@@ -517,6 +517,10 @@ const server = http.createServer(async (req, res) => {
       `http://${req.headers.host || 'localhost'}`
     );
 
+    // Нормалізуємо шлях (видаляємо слеш у кінці, якщо є)
+    const normalizedPath =
+      url.pathname.replace(/\/+$/, '') || '/';
+
     // Перевірка стану сервера.
     if (
       (req.method === 'GET' || req.method === 'HEAD') &&
@@ -533,18 +537,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Генерація плану-конспекту.
-    // Нормалізуємо шлях (видаляємо слеш у кінці, якщо є)
-const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
-
-// Генерація плану-конспекту.
-if (
-  req.method === 'POST' &&
-  normalizedPath === '/api/generate'
-) {
-  // ... код генерації
-}
-  
-          let data;
+    if (
+      req.method === 'POST' &&
+      normalizedPath === '/api/generate'
+    ) {
+      let data;
 
       try {
         data = await readRequest(req);
