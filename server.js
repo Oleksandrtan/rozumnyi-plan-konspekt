@@ -11,18 +11,17 @@ const path = require('path');
 const PORT = Number(process.env.PORT) || 10000;
 const API_KEY = process.env.GEMINI_API_KEY;
 
-// Основна модель — gemini-2.5-flash (залишаємо за бажанням)
+// Основна модель — gemini-2.5-flash (стабільна, швидка)
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// Резервна модель — gemini-2.5-pro
+// Резервна модель — gemini-2.5-pro (потужна, для складних випадків)
 const FALLBACK_MODEL =
   process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-pro';
 
-// Аварійна модель — gemini-2.5-flash-lite
+// Додаткова модель — gemini-2.0-flash (стабільна модель попереднього покоління)
 const EMERGENCY_MODEL =
-  process.env.GEMINI_EMERGENCY_MODEL || 'gemini-2.5-flash-lite';
+  process.env.GEMINI_EMERGENCY_MODEL || 'gemini-2.0-flash';
 
-// Кінцевий пункт API (v1beta — стандартний для Gemini API)
 const API_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models/';
 
@@ -218,7 +217,6 @@ async function requestGemini(model, prompt) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  // Використовуємо v1beta, оскільки модель gemini-2.5-flash доступна там
   const url = `${API_BASE}${encodeURIComponent(model)}:generateContent`;
 
   try {
