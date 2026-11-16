@@ -14,9 +14,13 @@ const API_KEY = process.env.GEMINI_API_KEY;
 // Основна модель Gemini
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// Резервна модель (якщо основна тимчасово недоступна)
+// Резервна модель (використовується, якщо основна тимчасово недоступна)
 const FALLBACK_MODEL =
   process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-pro';
+
+// Додатковий "аварійний" варіант, якщо і резервна не відповідає
+const EMERGENCY_MODEL =
+  process.env.GEMINI_EMERGENCY_MODEL || 'gemini-2.5-flash-lite';
 
 const API_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models/';
@@ -24,7 +28,11 @@ const API_BASE =
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const REQUEST_TIMEOUT_MS = 60000;
 const MAX_REQUEST_SIZE = 1000000;
-const MAX_ATTEMPTS_PRIMARY = 3;
+
+// Збільшена кількість спроб для основної моделі
+const MAX_ATTEMPTS_PRIMARY = 5;
+const MAX_ATTEMPTS_FALLBACK = 3;
+const MAX_ATTEMPTS_EMERGENCY = 2;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -209,6 +217,22 @@ function parseRetryAfter(response) {
     : 0;
 }
 
+/**
+ * Обчислює затримку перед повторною спробою.
+ * Використовує експоненційне зростання та додає випадковий jitter.
+ */
+function calculateBackoff(attempt, baseDelayMs = 1000, maxDelayMs = 16000) {
+  const exponentialDelay = Math.min(
+    baseDelayMs * 2 ** (attempt - 1),
+    maxDelayMs
+  );
+
+  // Jitter: додаємо випадкову затримку до 1 секунди
+  const jitter = Math.random() * 1000;
+
+  return exponentialDelay + jitter;
+}
+
 async function requestGemini(model, prompt) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -329,7 +353,12 @@ async function callGemini(prompt) {
   const models = [
     { name: MODEL, attempts: MAX_ATTEMPTS_PRIMARY },
     ...(FALLBACK_MODEL && FALLBACK_MODEL !== MODEL
-      ? [{ name: FALLBACK_MODEL, attempts: 2 }]
+      ? [{ name: FALLBACK_MODEL, attempts: MAX_ATTEMPTS_FALLBACK }]
+      : []),
+    ...(EMERGENCY_MODEL &&
+    EMERGENCY_MODEL !== MODEL &&
+    EMERGENCY_MODEL !== FALLBACK_MODEL
+      ? [{ name: EMERGENCY_MODEL, attempts: MAX_ATTEMPTS_EMERGENCY }]
       : [])
   ];
 
@@ -360,14 +389,25 @@ async function callGemini(prompt) {
         if (!error.retryable) throw error;
 
         if (attempt < modelConfig.attempts) {
-          const backoff = Math.min(2000 * 2 ** (attempt - 1), 8000);
-          const delay = Math.max(backoff, error.retryAfterMs || 0);
+          // Використовуємо backoff з jitter
+          const backoff = calculateBackoff(attempt);
+          const delay = Math.max(
+            backoff,
+            error.retryAfterMs || 0
+          );
 
-          console.log(`[GEMINI RETRY] Очікування ${delay} мс`);
+          console.log(
+            `[GEMINI RETRY] Очікування ${Math.round(delay)} мс`
+          );
           await sleep(delay);
         }
       }
     }
+
+    console.log(
+      `[GEMINI FALLBACK] Перемикаємось з ${modelConfig.name} ` +
+        `на наступну модель...`
+    );
   }
 
   throw new GeminiError(
@@ -455,6 +495,7 @@ const server = http.createServer(async (req, res) => {
         app: 'rozumnyi-plan-konspekt',
         model: MODEL,
         fallbackModel: FALLBACK_MODEL,
+        emergencyModel: EMERGENCY_MODEL,
         apiKeyConfigured: Boolean(API_KEY),
         nodeVersion: process.version
       });
@@ -565,6 +606,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('Node.js:', process.version);
   console.log('Основна модель Gemini:', MODEL);
   console.log('Резервна модель Gemini:', FALLBACK_MODEL);
+  console.log('Аварійна модель Gemini:', EMERGENCY_MODEL);
   console.log('API ключ:', API_KEY ? 'Налаштований' : 'ВІДСУТНІЙ');
   console.log('Папка сайту:', PUBLIC_DIR);
   console.log('========================================');
