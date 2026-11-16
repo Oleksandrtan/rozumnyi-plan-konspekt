@@ -1,4 +1,3 @@
-
 'use strict';
 
 const http = require('http');
@@ -12,21 +11,21 @@ const path = require('path');
 const PORT = Number(process.env.PORT) || 10000;
 const API_KEY = process.env.GEMINI_API_KEY;
 
-// Основна модель Gemini
+// Основна актуальна модель Gemini
 const MODEL =
-  process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// Резервна модель
+// Резервна модель (використовується, якщо основна тимчасово недоступна)
 const FALLBACK_MODEL =
-  process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.7-flash';
+  process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-pro';
 
 const API_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models/';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const REQUEST_TIMEOUT_MS = 120000;
+const REQUEST_TIMEOUT_MS = 60000; // 60 секунд для генерації великих конспектів
 const MAX_REQUEST_SIZE = 1000000;
-const MAX_ATTEMPTS_PRIMARY = 2;
+const MAX_ATTEMPTS_PRIMARY = 3;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -148,7 +147,7 @@ function makePrompt(data) {
     або результатів, яких не можна обґрунтувати.
 11. Не пиши загальні фрази замість конкретних завдань.
     Усі вправи мають відповідати темі уроку.
-12. Розподіл часу всіх етапів має разом дорівнювати
+12. Розподіл часу всех етапів має разом дорівнювати
     тривалості уроку.
 13. Домашнє завдання має бути посильним;
     якщо воно недоречне, так і зазнач.
@@ -209,13 +208,13 @@ function parseRetryAfter(response) {
   const seconds = Number(value);
 
   if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.min(seconds * 1000, 5000);
+    return Math.min(seconds * 1000, 10000);
   }
 
   const dateMs = Date.parse(value) - Date.now();
 
   return Number.isFinite(dateMs) && dateMs > 0
-    ? Math.min(dateMs, 5000)
+    ? Math.min(dateMs, 10000)
     : 0;
 }
 
@@ -236,7 +235,8 @@ async function requestGemini(model, prompt) {
 
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': API_KEY
+        'x-goog-api-key': API_KEY,
+        'User-Agent': 'RozumnyiPlanKonspekt/1.0'
       },
 
       body: JSON.stringify({
@@ -360,7 +360,7 @@ async function callGemini(prompt) {
     ...(FALLBACK_MODEL && FALLBACK_MODEL !== MODEL
       ? [{
           name: FALLBACK_MODEL,
-          attempts: 1
+          attempts: 2
         }]
       : [])
   ];
@@ -402,9 +402,10 @@ async function callGemini(prompt) {
         }
 
         if (attempt < modelConfig.attempts) {
+          // Збільшена пауза між спробами (до 8 секунд)
           const backoff = Math.min(
-            1000 * (2 ** (attempt - 1)),
-            3000
+            2000 * (2 ** (attempt - 1)),
+            8000
           );
 
           const delay = Math.max(
