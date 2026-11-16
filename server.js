@@ -11,16 +11,16 @@ const path = require('path');
 const PORT = Number(process.env.PORT) || 10000;
 const API_KEY = process.env.GEMINI_API_KEY;
 
-// Основна модель — gemini-2.5-flash (стабільна, швидка)
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// Основна модель — актуальна стабільна версія Gemini 3.5 Flash-Lite
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 
-// Резервна модель — gemini-2.5-pro (потужна, для складних випадків)
+// Резервна модель — потужна модель для складних завдань
 const FALLBACK_MODEL =
-  process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-pro';
+  process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.1-pro-preview';
 
-// Додаткова модель — gemini-2.0-flash (стабільна модель попереднього покоління)
+// Додаткова модель — найновіша Flash-модель
 const EMERGENCY_MODEL =
-  process.env.GEMINI_EMERGENCY_MODEL || 'gemini-2.0-flash';
+  process.env.GEMINI_EMERGENCY_MODEL || 'gemini-3.8-flash';
 
 const API_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models/';
@@ -29,8 +29,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const REQUEST_TIMEOUT_MS = 60000;
 const MAX_REQUEST_SIZE = 1000000;
 
-const MAX_ATTEMPTS_PRIMARY = 5;
-const MAX_ATTEMPTS_FALLBACK = 3;
+const MAX_ATTEMPTS_PRIMARY = 3;
+const MAX_ATTEMPTS_FALLBACK = 2;
 const MAX_ATTEMPTS_EMERGENCY = 2;
 
 const MIME = {
@@ -95,6 +95,57 @@ async function readRequest(req) {
 function cleanInput(value, fallback, maxLength = 4000) {
   const result = String(value ?? '').trim();
   return (result || fallback).slice(0, maxLength);
+}
+
+// ======================================================
+// ДИНАМІЧНЕ ВИЗНАЧЕННЯ ДОСТУПНИХ МОДЕЛЕЙ
+// ======================================================
+
+/**
+ * Отримує список моделей, які підтримують generateContent.
+ * Це дозволяє уникнути помилок 404 у майбутньому.
+ */
+async function fetchAvailableModels() {
+  if (!API_KEY) return null;
+  try {
+    const url = `${API_BASE}?key=${API_KEY}`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'RozumnyiPlanKonspekt/1.0' }
+    });
+    if (!response.ok) {
+      console.warn(`[MODELS] Не вдалося отримати список моделей (HTTP ${response.status}).`);
+      return null;
+    }
+    const data = await response.json();
+    const models = (data.models || [])
+      .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+      .map(m => m.name.replace(/^models\//, ''));
+    return models.length > 0 ? models : null;
+  } catch (err) {
+    console.warn(`[MODELS] Помилка отримання списку моделей: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Вибирає найкращу доступну модель з пріоритетного списку.
+ * Якщо динамічний список доступний, використовує його для перевірки.
+ */
+async function selectModel(preferred, dynamicModels) {
+  if (!dynamicModels) return preferred; // Якщо не вдалося отримати список, повертаємо бажану
+  if (dynamicModels.includes(preferred)) return preferred;
+
+  // Якщо бажаної моделі немає, шукаємо альтернативу з того ж сімейства
+  const family = preferred.split('-').slice(0, 3).join('-'); // напр., gemini-3.5
+  const alternative = dynamicModels.find(m => m.startsWith(family));
+  if (alternative) {
+    console.log(`[MODELS] Модель "${preferred}" недоступна. Використовуємо "${alternative}".`);
+    return alternative;
+  }
+
+  // Якщо нічого не знайдено, повертаємо першу доступну
+  console.warn(`[MODELS] Модель "${preferred}" недоступна. Використовуємо "${dynamicModels[0]}".`);
+  return dynamicModels[0];
 }
 
 // ======================================================
@@ -228,16 +279,8 @@ async function requestGemini(model, prompt) {
         'User-Agent': 'RozumnyiPlanKonspekt/1.0'
       },
       body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.6,
-          maxOutputTokens: 8192
-        }
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.6, maxOutputTokens: 8192 }
       }),
       signal: controller.signal
     });
@@ -256,11 +299,8 @@ async function requestGemini(model, prompt) {
     }
 
     if (!response.ok) {
-      const apiMessage =
-        result?.error?.message || 'Невідома помилка Google API';
-      const retryable = [408, 429, 500, 502, 503, 504].includes(
-        response.status
-      );
+      const apiMessage = result?.error?.message || 'Невідома помилка Google API';
+      const retryable = [408, 429, 500, 502, 503, 504].includes(response.status);
       throw new GeminiError(
         `Gemini HTTP ${response.status}: ${apiMessage}`,
         response.status,
@@ -323,15 +363,23 @@ async function callGemini(prompt) {
     );
   }
 
+  // 1. Отримуємо актуальний список доступних моделей
+  const availableModels = await fetchAvailableModels();
+
+  // 2. Визначаємо найкращі моделі для використання
+  const primaryModel = await selectModel(MODEL, availableModels);
+  const fallbackModel = await selectModel(FALLBACK_MODEL, availableModels);
+  const emergencyModel = await selectModel(EMERGENCY_MODEL, availableModels);
+
   const models = [
-    { name: MODEL, attempts: MAX_ATTEMPTS_PRIMARY },
-    ...(FALLBACK_MODEL && FALLBACK_MODEL !== MODEL
-      ? [{ name: FALLBACK_MODEL, attempts: MAX_ATTEMPTS_FALLBACK }]
+    { name: primaryModel, attempts: MAX_ATTEMPTS_PRIMARY },
+    ...(fallbackModel && fallbackModel !== primaryModel
+      ? [{ name: fallbackModel, attempts: MAX_ATTEMPTS_FALLBACK }]
       : []),
-    ...(EMERGENCY_MODEL &&
-    EMERGENCY_MODEL !== MODEL &&
-    EMERGENCY_MODEL !== FALLBACK_MODEL
-      ? [{ name: EMERGENCY_MODEL, attempts: MAX_ATTEMPTS_EMERGENCY }]
+    ...(emergencyModel &&
+    emergencyModel !== primaryModel &&
+    emergencyModel !== fallbackModel
+      ? [{ name: emergencyModel, attempts: MAX_ATTEMPTS_EMERGENCY }]
       : [])
   ];
 
@@ -353,7 +401,7 @@ async function callGemini(prompt) {
           `[GEMINI ERROR] ${modelConfig.name}: ${error.message}`
         );
 
-        // 404 — модель не знайдена або недоступна: переходимо до наступної
+        // 404 — модель не знайдена: переходимо до наступної
         if (error.statusCode === 404) break;
 
         if (!error.retryable) throw error;
