@@ -10,16 +10,17 @@ const path = require('path');
 // ======================================================
 
 const PORT = Number(process.env.PORT) || 10000;
-const API_KEY = String(process.env.GEMINI_API_KEY || '').trim();
 
-// Основна модель
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+const API_KEY = String(
+  process.env.GEMINI_API_KEY || ''
+).trim();
 
-// Резервна модель
+const MODEL =
+  process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+
 const FALLBACK_MODEL =
   process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
 
-// Додаткова резервна модель
 const EMERGENCY_MODEL =
   process.env.GEMINI_EMERGENCY_MODEL || 'gemini-3.1-pro-preview';
 
@@ -30,12 +31,9 @@ const MODELS_LIST_URL =
   'https://generativelanguage.googleapis.com/v1beta/models';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const REQUEST_TIMEOUT_MS = 60000;
-const MAX_REQUEST_SIZE = 1000000;
 
-const MAX_ATTEMPTS_PRIMARY = 3;
-const MAX_ATTEMPTS_FALLBACK = 2;
-const MAX_ATTEMPTS_EMERGENCY = 2;
+const REQUEST_TIMEOUT_MS = 90000;
+const MAX_REQUEST_SIZE = 1000000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -62,7 +60,9 @@ function sleep(ms) {
 }
 
 function sendJson(res, status, data, extraHeaders = {}) {
-  if (res.headersSent || res.writableEnded || res.destroyed) return;
+  if (res.headersSent || res.writableEnded || res.destroyed) {
+    return;
+  }
 
   const body = JSON.stringify(data);
 
@@ -85,7 +85,10 @@ async function readRequest(req) {
     size += chunk.length;
 
     if (size > MAX_REQUEST_SIZE) {
-      const error = new Error('Занадто великий запит. Максимум 1 МБ.');
+      const error = new Error(
+        'Занадто великий запит. Максимум 1 МБ.'
+      );
+
       error.statusCode = 413;
       throw error;
     }
@@ -106,11 +109,12 @@ async function readRequest(req) {
 
 function cleanInput(value, fallback, maxLength = 4000) {
   const result = String(value ?? '').trim();
+
   return (result || fallback).slice(0, maxLength);
 }
 
 // ======================================================
-// ДИНАМІЧНЕ ВИЗНАЧЕННЯ ДОСТУПНИХ МОДЕЛЕЙ
+// ОТРИМАННЯ ДОСТУПНИХ МОДЕЛЕЙ GEMINI
 // ======================================================
 
 async function fetchAvailableModels() {
@@ -118,86 +122,111 @@ async function fetchAvailableModels() {
 
   try {
     const response = await fetch(MODELS_LIST_URL, {
+      method: 'GET',
       headers: {
-        'x-goog-api-key': API_KEY,
-        'User-Agent': 'RozumnyiPlanKonspekt/1.0'
+        'x-goog-api-key': API_KEY
       }
     });
 
     if (!response.ok) {
       console.warn(
-        `[MODELS] Не вдалося отримати список моделей (HTTP ${response.status}).`
+        `[MODELS] Список моделей недоступний: HTTP ${response.status}`
       );
+
       return null;
     }
 
     const data = await response.json();
 
     const models = (data.models || [])
-      .filter(m =>
-        m.supportedGenerationMethods?.includes('generateContent')
+      .filter(model =>
+        model.supportedGenerationMethods?.includes('generateContent')
       )
-      .map(m => m.name.replace(/^models\//, ''));
+      .map(model =>
+        model.name.replace(/^models\//, '')
+      );
 
-    return models.length > 0 ? models : null;
+    return models.length ? models : null;
 
-  } catch (err) {
+  } catch (error) {
     console.warn(
-      `[MODELS] Помилка отримання списку моделей: ${err.message}`
+      '[MODELS] Помилка отримання моделей:',
+      error.message
     );
+
     return null;
   }
 }
 
 function buildModelList(dynamicModels) {
-  const preferredModels = [
+  const preferred = [
     MODEL,
     FALLBACK_MODEL,
     EMERGENCY_MODEL
-  ]
-    .map(model => String(model || '').trim())
-    .filter(Boolean);
+  ].filter(Boolean);
 
-  if (Array.isArray(dynamicModels) && dynamicModels.length > 0) {
+  if (Array.isArray(dynamicModels) && dynamicModels.length) {
     const available = new Set(dynamicModels);
 
-    const selected = preferredModels.filter(model =>
+    const selected = preferred.filter(model =>
       available.has(model)
     );
 
-    if (selected.length > 0) {
-      for (const model of preferredModels) {
-        if (!available.has(model)) {
-          console.warn(
-            `[MODELS] Модель "${model}" недоступна цьому ключу.`
-          );
-        }
-      }
-
+    if (selected.length) {
       return [...new Set(selected)];
     }
 
     console.warn(
-      '[MODELS] Налаштовані моделі не знайдені. Використовуємо першу доступну модель Google.'
+      '[MODELS] Налаштовані моделі недоступні. ' +
+      'Використовується перша доступна модель.'
     );
 
     return [dynamicModels[0]];
   }
 
-  return [...new Set(preferredModels)];
+  return [...new Set(preferred)];
 }
 
 // ======================================================
-// ФОРМУВАННЯ ЗАВДАННЯ ДЛЯ GEMINI
+// ФОРМУВАННЯ ПРОМПТУ
 // ======================================================
 
 function makePrompt(data) {
-  const subject = cleanInput(data.subject, 'Не зазначено', 200);
-  const grade = cleanInput(data.grade, 'Не зазначено', 100);
-  const topic = cleanInput(data.topic, 'Не зазначено', 1000);
-  const type = cleanInput(data.type, 'Комбінований урок', 200);
-  const extra = cleanInput(data.extra, 'Немає', 3000);
-  const duration = cleanInput(data.duration, '45 хвилин', 50);
+  const subject = cleanInput(
+    data.subject,
+    'Не зазначено',
+    200
+  );
+
+  const grade = cleanInput(
+    data.grade,
+    'Не зазначено',
+    100
+  );
+
+  const topic = cleanInput(
+    data.topic,
+    'Не зазначено',
+    1000
+  );
+
+  const type = cleanInput(
+    data.type,
+    'Комбінований урок',
+    200
+  );
+
+  const extra = cleanInput(
+    data.extra,
+    'Немає',
+    3000
+  );
+
+  const duration = cleanInput(
+    data.duration,
+    '45 хвилин',
+    50
+  );
 
   return `
 Ти — досвідчений український педагог спеціальної школи
@@ -208,6 +237,7 @@ function makePrompt(data) {
 інтелектуальними порушеннями.
 
 ВХІДНІ ДАНІ:
+
 Предмет: ${subject}
 Клас: ${grade}
 Тема: ${topic}
@@ -216,29 +246,24 @@ function makePrompt(data) {
 Додаткові побажання: ${extra}
 
 ЗАГАЛЬНІ ВИМОГИ:
+
 1. Пиши виключно українською мовою.
 2. Враховуй вік, клас і навчальні можливості учнів.
-3. Адаптуй матеріал саме до вказаного предмета й теми.
-4. Використовуй короткі, зрозумілі речення та прості інструкції.
-5. Передбачай показ зразка, наочність, картки, схеми
-   або предмети, якщо вони доречні.
-6. Розбивай складні завдання на невеликі послідовні кроки.
-7. Передбачай повторення інструкцій, додатковий час
-   і допомогу вчителя.
-8. Чергуй види діяльності, додавай доступні ігрові
-   та практичні вправи.
-9. Передбачай диференціацію: завдання з допомогою
-   та завдання для самостійного виконання.
-10. Не вигадуй нормативних вимог, назв програм
-    або результатів, яких не можна обґрунтувати.
-11. Не пиши загальні фрази замість конкретних завдань.
-    Усі вправи мають відповідати темі уроку.
-12. Розподіл часу усіх етапів має разом дорівнювати
-    тривалості уроку.
-13. Домашнє завдання має бути посильним;
-    якщо воно недоречне, так і зазнач.
+3. Адаптуй матеріал до вказаного предмета й теми.
+4. Використовуй короткі, зрозумілі речення.
+5. Передбачай показ зразка, наочність, картки та схеми.
+6. Розбивай складні завдання на невеликі кроки.
+7. Передбачай повторення інструкцій і допомогу вчителя.
+8. Чергуй види діяльності.
+9. Додавай доступні ігрові та практичні вправи.
+10. Передбачай завдання з допомогою та самостійно.
+11. Не використовуй загальні фрази замість конкретних завдань.
+12. Усі вправи повинні відповідати темі уроку.
+13. Розподіл часу має відповідати тривалості уроку.
+14. Домашнє завдання має бути посильним.
 
 СТРУКТУРА:
+
 1. Тема уроку.
 2. Мета: навчальна, розвивальна, виховна.
 3. Корекційно-розвиткова спрямованість.
@@ -249,26 +274,27 @@ function makePrompt(data) {
 8. Підсумок і рефлексія.
 9. Домашнє завдання.
 
-ДЛЯ КОЖНОГО ЕТАПУ ХОДУ УРОКУ ВКАЖИ:
-- назву етапу та кількість хвилин;
-- конкретні слова або запитання вчителя;
-- дії вчителя;
-- дії учнів;
-- конкретні вправи/завдання з відповідями
-  або зразками, де це доречно;
-- методичні адаптації та види допомоги.
+ДЛЯ КОЖНОГО ЕТАПУ ВКАЖИ:
+
+- Назву етапу та кількість хвилин.
+- Конкретні слова та запитання вчителя.
+- Дії вчителя.
+- Дії учнів.
+- Конкретні вправи та завдання.
+- Відповіді або зразки виконання, де це доречно.
+- Методичні адаптації та види допомоги.
 
 Зроби конспект достатньо докладним, щоб учитель
-міг провести урок за цим матеріалом без самостійного
-дописування основних завдань.
+міг провести урок без самостійного дописування
+основних завдань.
 
 Форматуй відповідь зрозумілими заголовками,
-списками й таблицями, якщо це полегшує читання.
+списками й таблицями.
 `;
 }
 
 // ======================================================
-// ПОМИЛКИ GEMINI ТА ПОВТОРНІ СПРОБИ
+// КЛАС ПОМИЛОК GEMINI
 // ======================================================
 
 class GeminiError extends Error {
@@ -279,6 +305,7 @@ class GeminiError extends Error {
     retryAfterMs = 0
   ) {
     super(message);
+
     this.name = 'GeminiError';
     this.statusCode = statusCode;
     this.retryable = retryable;
@@ -297,27 +324,59 @@ function parseRetryAfter(response) {
     return Math.min(seconds * 1000, 10000);
   }
 
-  const dateMs = Date.parse(value) - Date.now();
-
-  return Number.isFinite(dateMs) && dateMs > 0
-    ? Math.min(dateMs, 10000)
-    : 0;
+  return 0;
 }
 
-function calculateBackoff(
-  attempt,
-  baseDelayMs = 1000,
-  maxDelayMs = 16000
-) {
-  const exponentialDelay = Math.min(
-    baseDelayMs * 2 ** (attempt - 1),
-    maxDelayMs
-  );
-
-  const jitter = Math.random() * 1000;
-
-  return exponentialDelay + jitter;
+function calculateBackoff(attempt) {
+  return Math.min(
+    1000 * 2 ** (attempt - 1),
+    16000
+  ) + Math.random() * 1000;
 }
+
+// ======================================================
+// ВИТЯГУВАННЯ ТЕКСТУ З ВІДПОВІДІ GEMINI
+// ======================================================
+
+function extractGeminiText(result) {
+  if (!result || typeof result !== 'object') {
+    return '';
+  }
+
+  // Стандартний формат Gemini generateContent
+  const candidates = result.candidates || [];
+
+  const texts = [];
+
+  for (const candidate of candidates) {
+    const parts = candidate?.content?.parts || [];
+
+    for (const part of parts) {
+      if (typeof part.text === 'string') {
+        texts.push(part.text);
+      }
+    }
+  }
+
+  const answer = texts.join('\n').trim();
+
+  if (answer) return answer;
+
+  // Додаткові варіанти структури відповіді
+  if (typeof result.text === 'string') {
+    return result.text.trim();
+  }
+
+  if (typeof result.output_text === 'string') {
+    return result.output_text.trim();
+  }
+
+  return '';
+}
+
+// ======================================================
+// ЗАПИТ ДО GEMINI
+// ======================================================
 
 async function requestGemini(model, prompt) {
   const controller = new AbortController();
@@ -336,15 +395,18 @@ async function requestGemini(model, prompt) {
 
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': API_KEY,
-        'User-Agent': 'RozumnyiPlanKonspekt/1.0'
+        'x-goog-api-key': API_KEY
       },
 
       body: JSON.stringify({
         contents: [
           {
             role: 'user',
-            parts: [{ text: prompt }]
+            parts: [
+              {
+                text: prompt
+              }
+            ]
           }
         ],
 
@@ -365,16 +427,16 @@ async function requestGemini(model, prompt) {
       result = JSON.parse(raw);
     } catch {
       throw new GeminiError(
-        `Google API повернув не JSON (HTTP ${response.status}).`,
+        `Google API повернув некоректну відповідь. HTTP ${response.status}`,
         response.status || 502,
-        response.status >= 500,
-        parseRetryAfter(response)
+        response.status >= 500
       );
     }
 
     if (!response.ok) {
-      const apiMessage =
-        result?.error?.message || 'Невідома помилка Google API';
+      const message =
+        result?.error?.message ||
+        'Невідома помилка Google API';
 
       const retryable = [
         408,
@@ -385,50 +447,46 @@ async function requestGemini(model, prompt) {
         504
       ].includes(response.status);
 
-      const helpMessage = response.status === 403
-        ? ' Перевірте, що GEMINI_API_KEY містить новий Auth API key, а ключ належить активному проєкту Gemini API.'
-        : response.status === 401
-          ? ' Перевірте правильність GEMINI_API_KEY у Render.'
-          : '';
-
       throw new GeminiError(
-        `Gemini HTTP ${response.status}: ${apiMessage}${helpMessage}`,
+        `Gemini HTTP ${response.status}: ${message}`,
         response.status,
         retryable,
         parseRetryAfter(response)
       );
     }
 
-    const candidate = result?.candidates?.[0];
+    const answer = extractGeminiText(result);
 
-    const answer = candidate?.content?.parts
-      ?.map(part =>
-        typeof part.text === 'string' ? part.text : ''
-      )
-      .join('')
-      .trim();
+    if (!answer) {
+      const candidate = result?.candidates?.[0];
 
-    if (answer) return answer;
+      const reason =
+        result?.promptFeedback?.blockReason ||
+        candidate?.finishReason ||
+        'Gemini повернув порожню відповідь';
 
-    const finish = candidate?.finishReason;
+      console.error(
+        '[GEMINI EMPTY RESPONSE]',
+        JSON.stringify({
+          promptFeedback: result?.promptFeedback,
+          finishReason: candidate?.finishReason,
+          candidateCount: result?.candidates?.length
+        })
+      );
 
-    const blockReason =
-      result?.promptFeedback?.blockReason ||
-      (finish && finish !== 'STOP'
-        ? finish
-        : 'порожня відповідь');
+      throw new GeminiError(
+        `Gemini не повернув текст. Причина: ${reason}`,
+        502,
+        true
+      );
+    }
 
-    throw new GeminiError(
-      `Gemini не повернув текст. Причина: ${blockReason}. ` +
-        `Спробуйте змінити тему або формулювання.`,
-      422,
-      false
-    );
+    return answer;
 
   } catch (error) {
     if (error.name === 'AbortError') {
       throw new GeminiError(
-        `Час очікування відповіді моделі ${model} вичерпано.`,
+        `Час очікування моделі ${model} вичерпано.`,
         504,
         true
       );
@@ -439,7 +497,7 @@ async function requestGemini(model, prompt) {
     }
 
     throw new GeminiError(
-      `Не вдалося з'єднатися з Google Gemini: ${error.message}`,
+      `Помилка з'єднання з Gemini: ${error.message}`,
       503,
       true
     );
@@ -449,10 +507,14 @@ async function requestGemini(model, prompt) {
   }
 }
 
+// ======================================================
+// ГЕНЕРАЦІЯ З РЕЗЕРВНИМИ МОДЕЛЯМИ
+// ======================================================
+
 async function callGemini(prompt) {
   if (!API_KEY) {
     throw new GeminiError(
-      'Не налаштовано GEMINI_API_KEY. Додайте його у змінні середовища.',
+      'Не налаштовано GEMINI_API_KEY у Render.',
       500,
       false
     );
@@ -466,44 +528,30 @@ async function callGemini(prompt) {
     );
   }
 
-  // Отримуємо актуальний список доступних моделей
   const availableModels = await fetchAvailableModels();
 
-  // Формуємо список моделей у пріоритетному порядку
-  const selectedModels = buildModelList(availableModels);
-
-  const attemptLimits = [
-    MAX_ATTEMPTS_PRIMARY,
-    MAX_ATTEMPTS_FALLBACK,
-    MAX_ATTEMPTS_EMERGENCY
-  ];
-
-  const models = selectedModels.map((name, index) => ({
-    name,
-    attempts: attemptLimits[index] || 1
-  }));
+  const models = buildModelList(availableModels);
 
   let lastError = null;
 
-  for (const modelConfig of models) {
-    for (
-      let attempt = 1;
-      attempt <= modelConfig.attempts;
-      attempt++
-    ) {
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex++) {
+    const model = models[modelIndex];
+
+    const attempts = modelIndex === 0 ? 3 : 2;
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         console.log(
-          `[GEMINI] Модель ${modelConfig.name}; ` +
-          `спроба ${attempt}/${modelConfig.attempts}`
+          `[GEMINI] Модель ${model}; спроба ${attempt}/${attempts}`
         );
 
         const answer = await requestGemini(
-          modelConfig.name,
+          model,
           prompt
         );
 
         console.log(
-          `[GEMINI SUCCESS] ${modelConfig.name}`
+          `[GEMINI SUCCESS] ${model}; довжина тексту: ${answer.length}`
         );
 
         return answer;
@@ -512,19 +560,20 @@ async function callGemini(prompt) {
         lastError = error;
 
         console.error(
-          `[GEMINI ERROR] ${modelConfig.name}: ${error.message}`
+          `[GEMINI ERROR] ${model}: ${error.message}`
         );
 
-        // Якщо модель не знайдена, переходимо до наступної
-        if (error.statusCode === 404) break;
+        if (error.statusCode === 404) {
+          break;
+        }
 
-        if (!error.retryable) throw error;
+        if (!error.retryable) {
+          throw error;
+        }
 
-        if (attempt < modelConfig.attempts) {
-          const backoff = calculateBackoff(attempt);
-
+        if (attempt < attempts) {
           const delay = Math.max(
-            backoff,
+            calculateBackoff(attempt),
             error.retryAfterMs || 0
           );
 
@@ -538,22 +587,49 @@ async function callGemini(prompt) {
     }
 
     console.log(
-      `[GEMINI FALLBACK] Перемикаємось з ${modelConfig.name} ` +
-      `на наступну модель...`
+      `[GEMINI FALLBACK] Перехід до наступної моделі`
     );
   }
 
   throw new GeminiError(
-    `Зараз Google Gemini тимчасово не відповідає. ` +
-    `Спробуйте ще раз через хвилину. ` +
-    `Остання помилка: ${lastError?.message || 'невідома помилка'}`,
-    lastError?.statusCode === 429 ? 429 : 503,
+    lastError?.message ||
+      'Усі моделі Gemini тимчасово недоступні.',
+    lastError?.statusCode || 503,
     true
   );
 }
 
 // ======================================================
-// СТАТИЧНІ ФАЙЛИ САЙТУ
+// ВІДПРАВЛЕННЯ УСПІШНОЇ ВІДПОВІДІ
+// ======================================================
+
+function sendGeneratedText(res, answer) {
+  const text = String(answer || '').trim();
+
+  if (!text) {
+    return sendJson(res, 502, {
+      success: false,
+      error: 'Gemini не повернув текст.',
+      details: 'Отримана порожня відповідь.'
+    });
+  }
+
+  console.log(
+    `[RESPONSE] Відправлено текст. Символів: ${text.length}`
+  );
+
+  return sendJson(res, 200, {
+    success: true,
+    response: text,
+    text: text,
+    answer: text,
+    result: text,
+    content: text
+  });
+}
+
+// ======================================================
+// СТАТИЧНІ ФАЙЛИ
 // ======================================================
 
 function serveStatic(req, res, pathname) {
@@ -562,11 +638,9 @@ function serveStatic(req, res, pathname) {
   try {
     decodedPath = decodeURIComponent(pathname);
   } catch {
-    return sendJson(
-      res,
-      400,
-      { error: 'Некоректний шлях до файлу.' }
-    );
+    return sendJson(res, 400, {
+      error: 'Некоректний шлях до файлу.'
+    });
   }
 
   const relativePath =
@@ -574,34 +648,36 @@ function serveStatic(req, res, pathname) {
       ? 'index.html'
       : decodedPath.replace(/^\/+/, '');
 
-  const filePath = path.resolve(PUBLIC_DIR, relativePath);
+  const filePath = path.resolve(
+    PUBLIC_DIR,
+    relativePath
+  );
 
-  const relative = path.relative(PUBLIC_DIR, filePath);
+  const relative = path.relative(
+    PUBLIC_DIR,
+    filePath
+  );
 
   if (
     relative === '..' ||
     relative.startsWith('..' + path.sep) ||
     path.isAbsolute(relative)
   ) {
-    return sendJson(
-      res,
-      403,
-      { error: 'Доступ заборонено.' }
-    );
+    return sendJson(res, 403, {
+      error: 'Доступ заборонено.'
+    });
   }
 
   fs.readFile(filePath, (error, content) => {
     if (error) {
-      console.error(
+      console.warn(
         '[STATIC FILE NOT FOUND]',
         relativePath
       );
 
-      return sendJson(
-        res,
-        404,
-        { error: 'Файл не знайдено.' }
-      );
+      return sendJson(res, 404, {
+        error: 'Файл не знайдено.'
+      });
     }
 
     const ext = path.extname(filePath).toLowerCase();
@@ -639,13 +715,13 @@ const server = http.createServer(async (req, res) => {
       `http://${req.headers.host || 'localhost'}`
     );
 
-    const normalizedPath =
+    const pathname =
       url.pathname.replace(/\/+$/, '') || '/';
 
-    // Перевірка стану сервера
+    // Перевірка сервера
     if (
       (req.method === 'GET' || req.method === 'HEAD') &&
-      normalizedPath === '/health'
+      pathname === '/health'
     ) {
       return sendJson(res, 200, {
         ok: true,
@@ -661,13 +737,12 @@ const server = http.createServer(async (req, res) => {
     // Генерація плану-конспекту
     if (
       req.method === 'POST' &&
-      normalizedPath === '/api/generate'
+      pathname === '/api/generate'
     ) {
       let data;
 
       try {
         data = await readRequest(req);
-
       } catch (error) {
         return sendJson(
           res,
@@ -684,28 +759,20 @@ const server = http.createServer(async (req, res) => {
         typeof data !== 'object' ||
         Array.isArray(data)
       ) {
-        return sendJson(
-          res,
-          400,
-          {
-            success: false,
-            error: 'Передайте коректні дані уроку.'
-          }
-        );
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Передайте коректні дані уроку.'
+        });
       }
 
       if (
         !String(data.subject || '').trim() ||
         !String(data.topic || '').trim()
       ) {
-        return sendJson(
-          res,
-          400,
-          {
-            success: false,
-            error: 'Вкажіть навчальний предмет і тему уроку.'
-          }
-        );
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Вкажіть предмет і тему уроку.'
+        });
       }
 
       try {
@@ -713,14 +780,7 @@ const server = http.createServer(async (req, res) => {
 
         const answer = await callGemini(prompt);
 
-        return sendJson(
-          res,
-          200,
-          {
-            success: true,
-            response: answer
-          }
-        );
+        return sendGeneratedText(res, answer);
 
       } catch (error) {
         const status = error.statusCode || 502;
@@ -730,61 +790,46 @@ const server = http.createServer(async (req, res) => {
           error.message
         );
 
-        const headers =
-          status === 429 || status === 503
-            ? { 'Retry-After': '60' }
-            : {};
-
         return sendJson(
           res,
           status,
           {
             success: false,
-
-            error:
-              status === 429 || status === 503
-                ? 'Сервіс Gemini тимчасово перевантажений. ' +
-                  'Спробуйте ще раз через хвилину.'
-                : 'Не вдалося створити план-конспект.',
-
+            error: error.message,
             details: error.message
           },
-          headers
+          status === 429 || status === 503
+            ? { 'Retry-After': '60' }
+            : {}
         );
       }
     }
 
-    // Статичні файли сайту
+    // Статичні файли
     if (
       req.method === 'GET' ||
       req.method === 'HEAD'
     ) {
-      return serveStatic(req, res, url.pathname);
+      return serveStatic(
+        req,
+        res,
+        url.pathname
+      );
     }
 
-    return sendJson(
-      res,
-      405,
-      {
-        success: false,
-        error: 'Метод не підтримується.'
-      },
-      {
-        Allow: 'GET, HEAD, POST'
-      }
-    );
+    return sendJson(res, 405, {
+      success: false,
+      error: 'Метод не підтримується.'
+    });
 
   } catch (error) {
     console.error('[SERVER ERROR]', error);
 
-    return sendJson(
-      res,
-      500,
-      {
-        success: false,
-        error: 'Внутрішня помилка сервера.'
-      }
-    );
+    return sendJson(res, 500, {
+      success: false,
+      error: 'Внутрішня помилка сервера.',
+      details: error.message
+    });
   }
 });
 
@@ -792,27 +837,23 @@ const server = http.createServer(async (req, res) => {
 // ЗАПУСК СЕРВЕРА
 // ======================================================
 
-server.requestTimeout = 90000;
+server.requestTimeout = 120000;
 server.headersTimeout = 60000;
 server.keepAliveTimeout = 5000;
 
 server.listen(PORT, '0.0.0.0', () => {
-  const actualPort = server.address().port;
-
   console.log('========================================');
   console.log('РОЗУМНИЙ ПЛАН-КОНСПЕКТ');
   console.log('Сервер успішно запущено');
-  console.log('Порт:', actualPort);
+  console.log('Порт:', PORT);
   console.log('Node.js:', process.version);
-  console.log('Основна модель Gemini:', MODEL);
-  console.log('Резервна модель Gemini:', FALLBACK_MODEL);
-  console.log('Аварійна модель Gemini:', EMERGENCY_MODEL);
+  console.log('Основна модель:', MODEL);
+  console.log('Резервна модель:', FALLBACK_MODEL);
+  console.log('Аварійна модель:', EMERGENCY_MODEL);
 
   console.log(
-    'Gemini API key:',
-    API_KEY
-      ? 'Налаштований (значення приховано)'
-      : 'ВІДСУТНІЙ'
+    'API ключ:',
+    API_KEY ? 'Налаштований' : 'ВІДСУТНІЙ'
   );
 
   console.log('Папка сайту:', PUBLIC_DIR);
@@ -825,7 +866,7 @@ server.on('error', error => {
 });
 
 // ======================================================
-// ГРАЦІОЗНЕ ЗАВЕРШЕННЯ
+// ЗАВЕРШЕННЯ СЕРВЕРА
 // ======================================================
 
 process.on('unhandledRejection', reason => {
@@ -842,10 +883,9 @@ function shutdown(signal) {
     process.exit(0);
   });
 
-  setTimeout(
-    () => process.exit(1),
-    10000
-  ).unref();
+  setTimeout(() => {
+    process.exit(1);
+  }, 10000).unref();
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
