@@ -24,7 +24,7 @@ const API_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models/';
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const REQUEST_TIMEOUT_MS = 25000;
+const REQUEST_TIMEOUT_MS = 60000;
 const MAX_REQUEST_SIZE = 1000000;
 const MAX_ATTEMPTS_PRIMARY = 2;
 
