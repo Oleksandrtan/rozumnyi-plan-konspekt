@@ -11,17 +11,18 @@ const path = require('path');
 const PORT = Number(process.env.PORT) || 10000;
 const API_KEY = process.env.GEMINI_API_KEY;
 
-// Основна модель Gemini
+// Основна модель — gemini-2.5-flash (залишаємо за бажанням)
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// Резервна модель (використовується, якщо основна тимчасово недоступна)
+// Резервна модель — gemini-2.5-pro
 const FALLBACK_MODEL =
   process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-pro';
 
-// Додатковий "аварійний" варіант, якщо і резервна не відповідає
+// Аварійна модель — gemini-2.5-flash-lite
 const EMERGENCY_MODEL =
   process.env.GEMINI_EMERGENCY_MODEL || 'gemini-2.5-flash-lite';
 
+// Кінцевий пункт API (v1beta — стандартний для Gemini API)
 const API_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models/';
 
@@ -29,7 +30,6 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const REQUEST_TIMEOUT_MS = 60000;
 const MAX_REQUEST_SIZE = 1000000;
 
-// Збільшена кількість спроб для основної моделі
 const MAX_ATTEMPTS_PRIMARY = 5;
 const MAX_ATTEMPTS_FALLBACK = 3;
 const MAX_ATTEMPTS_EMERGENCY = 2;
@@ -60,9 +60,7 @@ function sleep(ms) {
 
 function sendJson(res, status, data, extraHeaders = {}) {
   if (res.headersSent || res.writableEnded || res.destroyed) return;
-
   const body = JSON.stringify(data);
-
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
@@ -70,30 +68,22 @@ function sendJson(res, status, data, extraHeaders = {}) {
     'X-Content-Type-Options': 'nosniff',
     ...extraHeaders
   });
-
   res.end(body);
 }
 
 async function readRequest(req) {
   const chunks = [];
   let size = 0;
-
   for await (const chunk of req) {
     size += chunk.length;
-
     if (size > MAX_REQUEST_SIZE) {
-      const error = new Error(
-        'Занадто великий запит. Максимум 1 МБ.'
-      );
+      const error = new Error('Занадто великий запит. Максимум 1 МБ.');
       error.statusCode = 413;
       throw error;
     }
-
     chunks.push(chunk);
   }
-
   const raw = Buffer.concat(chunks).toString('utf8');
-
   try {
     return JSON.parse(raw || '{}');
   } catch {
@@ -205,31 +195,22 @@ class GeminiError extends Error {
 function parseRetryAfter(response) {
   const value = response.headers.get('retry-after');
   if (!value) return 0;
-
   const seconds = Number(value);
   if (Number.isFinite(seconds) && seconds >= 0) {
     return Math.min(seconds * 1000, 10000);
   }
-
   const dateMs = Date.parse(value) - Date.now();
   return Number.isFinite(dateMs) && dateMs > 0
     ? Math.min(dateMs, 10000)
     : 0;
 }
 
-/**
- * Обчислює затримку перед повторною спробою.
- * Використовує експоненційне зростання та додає випадковий jitter.
- */
 function calculateBackoff(attempt, baseDelayMs = 1000, maxDelayMs = 16000) {
   const exponentialDelay = Math.min(
     baseDelayMs * 2 ** (attempt - 1),
     maxDelayMs
   );
-
-  // Jitter: додаємо випадкову затримку до 1 секунди
   const jitter = Math.random() * 1000;
-
   return exponentialDelay + jitter;
 }
 
@@ -237,6 +218,7 @@ async function requestGemini(model, prompt) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+  // Використовуємо v1beta, оскільки модель gemini-2.5-flash доступна там
   const url = `${API_BASE}${encodeURIComponent(model)}:generateContent`;
 
   try {
@@ -263,7 +245,6 @@ async function requestGemini(model, prompt) {
     });
 
     const raw = await response.text();
-
     let result;
     try {
       result = JSON.parse(raw);
@@ -279,11 +260,9 @@ async function requestGemini(model, prompt) {
     if (!response.ok) {
       const apiMessage =
         result?.error?.message || 'Невідома помилка Google API';
-
       const retryable = [408, 429, 500, 502, 503, 504].includes(
         response.status
       );
-
       throw new GeminiError(
         `Gemini HTTP ${response.status}: ${apiMessage}`,
         response.status,
@@ -293,7 +272,6 @@ async function requestGemini(model, prompt) {
     }
 
     const candidate = result?.candidates?.[0];
-
     const answer = candidate?.content?.parts
       ?.map(part => (typeof part.text === 'string' ? part.text : ''))
       .join('')
@@ -320,9 +298,7 @@ async function requestGemini(model, prompt) {
         true
       );
     }
-
     if (error instanceof GeminiError) throw error;
-
     throw new GeminiError(
       `Не вдалося з'єднатися з Google Gemini: ${error.message}`,
       503,
@@ -341,7 +317,6 @@ async function callGemini(prompt) {
       false
     );
   }
-
   if (typeof fetch !== 'function') {
     throw new GeminiError(
       'Потрібен Node.js версії 18 або новішої.',
@@ -371,39 +346,28 @@ async function callGemini(prompt) {
           `[GEMINI] Модель ${modelConfig.name}; ` +
             `спроба ${attempt}/${modelConfig.attempts}`
         );
-
         const answer = await requestGemini(modelConfig.name, prompt);
-
         console.log(`[GEMINI SUCCESS] ${modelConfig.name}`);
         return answer;
       } catch (error) {
         lastError = error;
-
         console.error(
           `[GEMINI ERROR] ${modelConfig.name}: ${error.message}`
         );
 
-        // 404 — модель не знайдена: переходимо до наступної моделі
+        // 404 — модель не знайдена або недоступна: переходимо до наступної
         if (error.statusCode === 404) break;
 
         if (!error.retryable) throw error;
 
         if (attempt < modelConfig.attempts) {
-          // Використовуємо backoff з jitter
           const backoff = calculateBackoff(attempt);
-          const delay = Math.max(
-            backoff,
-            error.retryAfterMs || 0
-          );
-
-          console.log(
-            `[GEMINI RETRY] Очікування ${Math.round(delay)} мс`
-          );
+          const delay = Math.max(backoff, error.retryAfterMs || 0);
+          console.log(`[GEMINI RETRY] Очікування ${Math.round(delay)} мс`);
           await sleep(delay);
         }
       }
     }
-
     console.log(
       `[GEMINI FALLBACK] Перемикаємось з ${modelConfig.name} ` +
         `на наступну модель...`
@@ -425,18 +389,14 @@ async function callGemini(prompt) {
 
 function serveStatic(req, res, pathname) {
   let decodedPath;
-
   try {
     decodedPath = decodeURIComponent(pathname);
   } catch {
-    return sendJson(res, 400, {
-      error: 'Некоректний шлях до файлу.'
-    });
+    return sendJson(res, 400, { error: 'Некоректний шлях до файлу.' });
   }
 
   const relativePath =
     decodedPath === '/' ? 'index.html' : decodedPath.replace(/^\/+/, '');
-
   const filePath = path.resolve(PUBLIC_DIR, relativePath);
   const relative = path.relative(PUBLIC_DIR, filePath);
 
@@ -445,28 +405,21 @@ function serveStatic(req, res, pathname) {
     relative.startsWith('..' + path.sep) ||
     path.isAbsolute(relative)
   ) {
-    return sendJson(res, 403, {
-      error: 'Доступ заборонено.'
-    });
+    return sendJson(res, 403, { error: 'Доступ заборонено.' });
   }
 
   fs.readFile(filePath, (error, content) => {
     if (error) {
       console.error('[STATIC FILE NOT FOUND]', relativePath);
-      return sendJson(res, 404, {
-        error: 'Файл не знайдено.'
-      });
+      return sendJson(res, 404, { error: 'Файл не знайдено.' });
     }
-
     const ext = path.extname(filePath).toLowerCase();
-
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Content-Length': content.length,
       'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
       'X-Content-Type-Options': 'nosniff'
     });
-
     if (req.method === 'HEAD') return res.end();
     res.end(content);
   });
@@ -482,7 +435,6 @@ const server = http.createServer(async (req, res) => {
       req.url,
       `http://${req.headers.host || 'localhost'}`
     );
-
     const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
 
     // ---- Перевірка стану сервера ----
@@ -504,7 +456,6 @@ const server = http.createServer(async (req, res) => {
     // ---- Генерація плану-конспекту ----
     if (req.method === 'POST' && normalizedPath === '/api/generate') {
       let data;
-
       try {
         data = await readRequest(req);
       } catch (error) {
@@ -520,7 +471,6 @@ const server = http.createServer(async (req, res) => {
           error: 'Передайте коректні дані уроку.'
         });
       }
-
       if (
         !String(data.subject || '').trim() ||
         !String(data.topic || '').trim()
@@ -534,21 +484,17 @@ const server = http.createServer(async (req, res) => {
       try {
         const prompt = makePrompt(data);
         const answer = await callGemini(prompt);
-
         return sendJson(res, 200, {
           success: true,
           response: answer
         });
       } catch (error) {
         const status = error.statusCode || 502;
-
         console.error('[GENERATION FAILED]', error.message);
-
         const headers =
           status === 429 || status === 503
             ? { 'Retry-After': '60' }
             : {};
-
         return sendJson(
           res,
           status,
@@ -574,10 +520,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(
       res,
       405,
-      {
-        success: false,
-        error: 'Метод не підтримується.'
-      },
+      { success: false, error: 'Метод не підтримується.' },
       { Allow: 'GET, HEAD, POST' }
     );
   } catch (error) {
