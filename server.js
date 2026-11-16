@@ -14,9 +14,9 @@ const API_KEY = process.env.GEMINI_API_KEY;
 // Основна модель Gemini
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// Резервна модель (та сама серія flash, інший варіант)
+// Резервна модель (якщо основна тимчасово недоступна)
 const FALLBACK_MODEL =
-  process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash-lite';
+  process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-pro';
 
 const API_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models/';
